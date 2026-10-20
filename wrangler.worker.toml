@@ -1,0 +1,12 @@
+# استقرار Cloudflare Workers (جایگزین Pages بلاک‌شده)
+name = "miliconfig-worker-v5"
+main = "src/index.js"
+compatibility_date = "2024-09-23"
+
+[vars]
+BRAND = "miliconfig"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "miliconfig-db"
+database_id = "dc2d4c21-2fc6-4cc3-81d3-3d450d2aa9b5"

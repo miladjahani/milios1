@@ -1,0 +1,14 @@
+# استقرار Cloudflare Pages (پروژه جدید miliconfig-v5)
+# این فایل فقط برای Pages است؛ wrangler.toml اصلی برای Workers دست‌نخورده می‌ماند.
+name = "miliconfig-v5"
+pages_build_output_dir = "dist"
+compatibility_date = "2024-09-23"
+
+[vars]
+BRAND = "miliconfig"
+
+# اتصال D1 موجود (کاربران و رمز مدیر قبلی حفظ می‌شود)
+[[d1_databases]]
+binding = "DB"
+database_name = "miliconfig-db"
+database_id = "dc2d4c21-2fc6-4cc3-81d3-3d450d2aa9b5"
