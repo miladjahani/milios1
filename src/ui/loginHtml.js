@@ -127,7 +127,10 @@ body.veiled .homepage{filter:blur(9px) brightness(.55) saturate(.9);transform:sc
   linear-gradient(180deg, rgba(2,8,5,.15), rgba(2,8,5,.65));
   opacity:0;transition:opacity .9s ease;pointer-events:none}
 body.veiled .scrim{opacity:1}
-.topbar{position:absolute;inset-block-start:0;inset-inline:0;display:flex;justify-content:space-between;align-items:center;padding:16px 20px;z-index:5}
+/* The gate overlay (z-index:10) covers the full viewport while visible, so the
+   topbar and skip control must sit above it or they render but never receive
+   taps. */
+.topbar{position:absolute;inset-block-start:0;inset-inline:0;display:flex;justify-content:space-between;align-items:center;padding:16px 20px;z-index:20}
 .brand{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:12px;background:rgba(6,14,10,.55);border:1px solid var(--border);backdrop-filter:blur(8px);color:#eaf6ee;font-size:.8rem}
 html[data-theme="light"] .brand{background:rgba(255,255,255,.72);color:#0d2118}
 .brand svg{width:26px;height:26px}
@@ -142,7 +145,7 @@ html[data-theme="light"] .tools button{background:rgba(255,255,255,.72);color:#0
 .tools button:hover{border-color:var(--accent);color:var(--accent)}
 .skip{
   position:absolute;inset-block-end:18px;inset-inline-start:50%;transform:translateX(-50%);
-  z-index:6;border:1px solid var(--border-strong);background:rgba(6,14,10,.6);color:#dcece2;
+  z-index:20;border:1px solid var(--border-strong);background:rgba(6,14,10,.6);color:#dcece2;
   border-radius:999px;padding:8px 18px;font:inherit;font-size:.76rem;cursor:pointer;backdrop-filter:blur(8px);
 }
 html[dir="rtl"] .skip{transform:translateX(50%)}

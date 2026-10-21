@@ -12,7 +12,7 @@ import {
 
 test('PBKDF2 password hash verifies and rejects wrong password', async () => {
   const hash = await hashPassword('Correct-Horse-42');
-  assert.match(hash, /^pbkdf2\$sha256\$210000\$/);
+  assert.match(hash, /^pbkdf2\$sha256\$100000\$/);
   const good = await verifyPassword('Correct-Horse-42', hash);
   assert.equal(good.ok, true);
   assert.equal(good.scheme, 'pbkdf2');

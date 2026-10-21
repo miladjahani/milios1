@@ -1,6 +1,6 @@
 // ============================================================================
 // miliconfigOS v4.0 - Security primitives
-// - PBKDF2-SHA256 password hashing (210k iterations, per-hash salt)
+// - PBKDF2-SHA256 password hashing (100k iterations, per-hash salt)
 // - constant-time verification with legacy SHA-256 migration
 // - cryptographically random tokens
 // - AES-GCM encryption for provider credentials at rest
@@ -9,8 +9,11 @@
 
 const textEncoder = new TextEncoder();
 
-const PBKDF2_ITERATIONS = 210000;
-const LEGACY_ITERATIONS = 120000;
+// Cloudflare Workers (workerd) rejects any single PBKDF2 call above 100000
+// iterations with NotSupportedError ("iteration counts above 100000 are not
+// supported"), so the work factor is capped at the runtime maximum.
+const PBKDF2_ITERATIONS = 100000;
+const LEGACY_ITERATIONS = 50000;
 
 export const SESSION_COOKIE = 'mili_session';
 export const LEGACY_SESSION_COOKIE = 'mili_auth';
@@ -138,7 +141,14 @@ export async function verifyPassword(password, stored) {
     } catch (_e) {
       return { ok: false, needsRehash: false, scheme: 'pbkdf2-invalid' };
     }
-    const actual = bytesToBase64(await pbkdf2(password, salt, iterations));
+    let actual;
+    try {
+      actual = bytesToBase64(await pbkdf2(password, salt, iterations));
+    } catch (_e) {
+      // A record stored with more than 100k iterations cannot be derived on
+      // workerd at all; report it as invalid instead of bubbling a 500.
+      return { ok: false, needsRehash: false, scheme: 'pbkdf2-invalid' };
+    }
     const ok = timingSafeEqual(actual, expected);
     return { ok, needsRehash: ok && iterations < PBKDF2_ITERATIONS, scheme: 'pbkdf2' };
   }
