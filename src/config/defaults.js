@@ -15,9 +15,9 @@ import {
 
 export const BRAND_NAME = 'miliconfig';
 export const BRAND_UPPER = 'MILICONFIG';
-export const VERSION = 'v3.1';
+export const VERSION = 'v4.0';
 export const DEFAULT_ADMIN_UUID = '351c9981-04b6-4103-aa4b-864aa9c91469';
-export const MAX_USERS_LIMIT = 3;
+export const MAX_USERS_LIMIT = 5;
 export const TELEGRAM_SUPPORT = '@miliconfig';
 
 // ۳ نود هاردکدشده اطلاع‌رسانی که باید در ابتدای تمام سابلینک‌ها قرار گیرند
@@ -46,7 +46,7 @@ export const CONFIG_DEFAULTS = {
   yx: '',
   yxURL: '',
   s: '',
-  homepage: '',
+  homepage: 'https://nginx.com',
   scu: 'https://url.v1.mk/sub',
   ena: 'no',
   epd: 'yes',
@@ -72,7 +72,7 @@ export const CONFIG_DEFAULTS = {
   fragmentLength: '100-200',
   fragmentInterval: '10-20',
   fragmentPackets: 'tlshello',
-  ipRotation: 15, // چرخش خودکار آی‌پی به دقیقه (۰ = خاموش)
+  ipRotation: 'off', // چرخش خودکار آی‌پی: off | 5m | 15m | 1h | 24h
   locationNodeCount: 8, // تعداد نود چندلوکیشن که در ساب‌لینک کشوری ساخته می‌شود
   frag: 'yes', // کلید روشن/خاموش فرگمنت (شادوساکس فرگمنت ندارد)
   ports: '443,2053,2087,8443', // پورت‌های نودهای ساب‌لینک (لیست جداشده با کاما)
@@ -516,6 +516,13 @@ export function normalizeAlpn(val) {
   return ALLOWED_ALPN.includes(s) ? s : '';
 }
 
+// Numeric settings are persisted as TEXT by the D1 config store, so they are
+// cast back to numbers whenever configuration is read.
+const NUMERIC_CONFIG_KEYS = [
+  'sessionHours', 'loginRateLimitMax', 'auditRetentionDays', 'healthIntervalMinutes',
+  'scannerConcurrency', 'defaultQuotaGb', 'defaultExpireDays', 'locationNodeCount'
+];
+
 export function normalizeEffectiveConfig(rawConfig = {}) {
   const snap = {
     ...CONFIG_DEFAULTS,
@@ -531,9 +538,20 @@ export function normalizeEffectiveConfig(rawConfig = {}) {
     snap.dkby = 'yes';
   }
   snap.alpn = normalizeAlpn(snap.alpn);
+  for (const key of NUMERIC_CONFIG_KEYS) {
+    if (snap[key] === undefined || snap[key] === null || snap[key] === '') continue;
+    const numeric = Number(snap[key]);
+    if (Number.isFinite(numeric)) snap[key] = numeric;
+  }
   const parsedCount = parseInt(snap.subNodeCount, 10);
   snap.subNodeCount = Number.isFinite(parsedCount) && parsedCount >= 0 ? parsedCount : 50;
-  snap.ipRotation = Number.isFinite(parseInt(snap.ipRotation, 10)) ? parseInt(snap.ipRotation, 10) : 15;
+  const rotationRaw = String(snap.ipRotation ?? 'off').trim().toLowerCase();
+  if (['off', '5m', '15m', '30m', '1h', '6h', '24h'].includes(rotationRaw)) {
+    snap.ipRotation = rotationRaw;
+  } else {
+    const rotationMinutes = parseInt(rotationRaw, 10);
+    snap.ipRotation = Number.isFinite(rotationMinutes) && rotationMinutes > 0 ? `${rotationMinutes}m` : 'off';
+  }
   // تنها متد Shadowsocks پشتیبانی‌شده توسط هسته همین ورکر «none» است؛ انتخاب‌های دیگر باعث بی‌پاسخ شدن نود می‌شدند
   snap.ssmethod = 'none';
   // اگر پریست فرگمنت روی حالت سفارشی باشد و مقادیر خالی بمانند، از مقادیر پیش‌فرض ضد-DPI استفاده می‌شود

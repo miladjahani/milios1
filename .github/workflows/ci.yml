@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install build dependencies
+        run: npm install --no-save terser acorn javascript-obfuscator
+
+      - name: Run automated test suite
+        run: npm test
+
+      - name: Validate D1 schema and migrations against SQLite
+        run: node scripts/check-schema.js
+
+      - name: Build deployable Worker bundle
+        run: npm run build
+
+      - name: Verify bundle is syntactically valid
+        run: node --check dist/worker.readable.js

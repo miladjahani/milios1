@@ -13,6 +13,7 @@ import {
 } from '../config/defaults.js';
 import { buildUserDefaultConfig } from '../config/presets.js';
 import { generateShortId, generateUuidV4, isValidUuid, sha256Hex } from '../core/utils.js';
+import { hashPassword, passwordPolicy, verifyPassword } from '../core/security.js';
 
 // حافظه کش داخلی هر Isolate جهت کارکرد بدون وقفه و حداکثر سرعت
 const memoryStore = {
@@ -90,12 +91,6 @@ export function getAdminUuid(env = {}) {
   return String(raw).trim().toLowerCase();
 }
 
-// UUID کاربر اولیه: همیشه رندوم — هرگز UUID پیش‌فرض قدیمی
-function generateSeedUuid() {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
-  return generateUuidV4();
-}
-
 // مسیر مدیریت بدون UUID پیش‌فرض عمومی:
 // اگر متغیر محیطی u/UUID تنظیم نشده باشد، یک UUID رندوم یکتا برای همین نصب ساخته
 // و در D1/KV ذخیره می‌شود؛ بنابراین هیچ مسیر قابل حدسی روی استقرار وجود ندارد.
@@ -149,17 +144,30 @@ export async function getOrCreateAdminPath(env = {}) {
 }
 
 // توکن نشست مدیریت: مشتق‌شده از هش رمز عبور (با تغییر رمز، نشست‌های قبلی باطل می‌شوند)
+// نشست مدیریت: توکن تصادفی با انقضا در D1 (جایگزین توکن مشتق‌شده از هش رمز)
 export async function buildAdminSessionToken(env = {}) {
-  const hash = await getAdminPasswordHash(env);
-  if (!hash) return '';
-  return (await sha256Hex(hash + '::mili-session::v1')).slice(0, 40);
+  const hasPassword = await hasAdminPassword(env);
+  if (!hasPassword) return '';
+  const cfg = await loadGlobalConfig(env);
+  try {
+    const { createAdminSession } = await import('./v4.js');
+    const session = await createAdminSession(env, { ttlHours: cfg.sessionHours || 12 });
+    return session.token;
+  } catch (_e) {
+    return '';
+  }
 }
 
 export async function verifyAdminSession(env = {}, token = '') {
   const clean = String(token || '').trim();
   if (!clean) return false;
-  const expected = await buildAdminSessionToken(env);
-  return Boolean(expected) && clean === expected;
+  try {
+    const { verifyAdminSessionToken } = await import('./v4.js');
+    const result = await verifyAdminSessionToken(env, clean);
+    return result.valid === true;
+  } catch (_e) {
+    return false;
+  }
 }
 
 // چرخش مسیر مدیریت: تولید UUID جدید و ذخیره آن (امکان تغییر مسیر در هر زمان)
@@ -257,49 +265,10 @@ export async function ensureD1Schema(env = {}, force = false) {
     }
     memoryStore.d1SchemaReady = true;
 
-    // بررسی وجود کاربر اولیه
-    const countRow = await db.prepare(`SELECT COUNT(*) as cnt FROM users`).first();
-    const totalUsers = Number(countRow?.cnt || 0);
-    if (totalUsers === 0) {
-      const adminUuid = generateSeedUuid();
-      const envSnap = getEnvConfigSnapshot(env);
-      const defaultUserConfig = buildUserDefaultConfig(envSnap, 'iran-fast', { subNodeCount: 50 });
-      const now = Date.now();
-      const firstId = generateShortId('mili');
-      await safeBind(
-        db.prepare(
-          `INSERT OR IGNORE INTO users (
-            id, username, uuid, sub_node_count, status, enabled,
-            data_limit_gb, used_bytes, lifetime_bytes, request_count,
-            expire_days, expire_at, start_on_first_use, first_connected_at,
-            ip_limit, node_scope, preset, note, config_json, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ),
-        firstId,
-        firstId,
-        adminUuid,
-        50,
-        'active',
-        1,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        1,
-        0,
-        50,
-        'all',
-        'iran-fast',
-        'کاربر اولیه پیش‌فرض miliconfig',
-        JSON.stringify(defaultUserConfig),
-        now,
-        now
-      ).run();
-
-      await addAuditLog(env, 'ساخت خودکار دیتابیس D1', `${firstId} · iran-fast`, 'system');
-    }
+    // No user is created automatically: all five user slots belong to the
+    // administrator. Creating a hidden starter account here would silently
+    // consume capacity and ship an account nobody asked for.
+    await addAuditLog(env, 'آماده‌سازی دیتابیس D1', `binding=${bindingName}`, 'system');
 
     return { d1Enabled: true, bindingName, migrated: true };
   } catch (err) {
@@ -316,45 +285,10 @@ export async function ensureD1Schema(env = {}, force = false) {
 function ensureMemorySeeded(env = {}) {
   if (memoryStore.initialized) return;
   memoryStore.initialized = true;
-  const adminUuid = generateSeedUuid();
   const envSnap = getEnvConfigSnapshot(env);
   memoryStore.globalConfig = { ...envSnap };
-
-  if (memoryStore.users.size === 0) {
-    const now = Date.now();
-    const firstId = 'mili-default';
-    const cfg = buildUserDefaultConfig(envSnap, 'iran-fast', { subNodeCount: 50 });
-    memoryStore.users.set(firstId, {
-      id: firstId,
-      username: firstId,
-      uuid: adminUuid,
-      subNodeCount: 50,
-      status: 'active',
-      enabled: true,
-      dataLimitGb: 0,
-      usedBytes: 0,
-      lifetimeBytes: 0,
-      requestCount: 0,
-      expireDays: 0,
-      expireAt: 0,
-      startOnFirstUse: true,
-      firstConnectedAt: 0,
-      ipLimit: 50,
-      nodeScope: 'all',
-      preset: 'iran-fast',
-      note: 'کاربر اولیه پیش‌فرض miliconfig',
-      config: cfg,
-      createdAt: now,
-      updatedAt: now
-    });
-    memoryStore.auditLogs.unshift({
-      id: 1,
-      action: 'راه‌اندازی اولیه سیستم',
-      detail: `${firstId} · iran-fast`,
-      ip: '127.0.0.1',
-      createdAt: now
-    });
-  }
+  // Memory fallback mode starts empty on purpose: the five user slots are the
+  // administrator's to fill, and nothing is invented on first boot.
 }
 
 function mapUserRow(row) {
@@ -436,13 +370,14 @@ export async function hasAdminPassword(env = {}) {
 }
 
 export async function setAdminPassword(env = {}, plainPassword, clientIp = '') {
-  if (!plainPassword || String(plainPassword).trim().length < 4) {
-    throw new Error('رمز عبور باید حداقل ۴ کاراکتر باشد.');
+  const cleanPass = String(plainPassword || '').trim();
+  const policy = passwordPolicy(cleanPass);
+  if (!policy.ok) {
+    throw new Error(policy.message);
   }
   // اطمینان از آماده بودن اسکیما پیش از نوشتن؛ رفع باگ «فراموش شدن رمز»
   await ensureD1Schema(env);
-  const cleanPass = String(plainPassword).trim();
-  const hash = await sha256Hex(cleanPass);
+  const hash = await hashPassword(cleanPass);
   memoryStore.adminPasswordHash = hash;
 
   const now = Date.now();
@@ -467,7 +402,63 @@ export async function setAdminPassword(env = {}, plainPassword, clientIp = '') {
     } catch (_e) {}
   }
 
+  // با تغییر رمز، همه نشست‌های قبلی باطل می‌شوند
+  try {
+    const { revokeAllAdminSessions } = await import('./v4.js');
+    await revokeAllAdminSessions(env);
+  } catch (_e) {}
+
   await addAuditLog(env, 'تعیین رمز عبور مدیر', 'Admin password updated', clientIp);
+  return true;
+}
+
+// راه‌اندازی اولیه: فقط یک بار و به‌صورت اتمیک (جلوگیری از تکرار Setup)
+export async function initializeAdminPassword(env = {}, plainPassword, clientIp = '') {
+  const cleanPass = String(plainPassword || '').trim();
+  const policy = passwordPolicy(cleanPass);
+  if (!policy.ok) throw new Error(policy.message);
+
+  await ensureD1Schema(env);
+  if (await getAdminPasswordHash(env)) {
+    throw new Error('SETUP_COMPLETE: Initial administrator setup is already complete.');
+  }
+
+  const hash = await hashPassword(cleanPass);
+  const now = Date.now();
+  const detectedD1 = detectD1Binding(env);
+  let claimed = false;
+
+  if (detectedD1 && memoryStore.d1SchemaReady) {
+    const res = await safeBind(
+      detectedD1.db.prepare(
+        `INSERT INTO system_config (key, value, updated_at)
+         SELECT 'admin_password_hash', ?, ?
+         WHERE NOT EXISTS (SELECT 1 FROM system_config WHERE key = 'admin_password_hash')`
+      ),
+      hash,
+      now
+    ).run();
+    claimed = Number(res?.meta?.changes ?? res?.changes ?? 0) > 0;
+    if (!claimed) throw new Error('SETUP_COMPLETE: Initial administrator setup is already complete.');
+  } else {
+    if (memoryStore.adminPasswordHash) {
+      throw new Error('SETUP_COMPLETE: Initial administrator setup is already complete.');
+    }
+    claimed = true;
+  }
+
+  memoryStore.adminPasswordHash = hash;
+  const detectedKv = detectKvBinding(env);
+  if (detectedKv) {
+    try { await detectedKv.kv.put('admin_password_hash', hash); } catch (_e) {}
+  }
+
+  try {
+    const { revokeAllAdminSessions } = await import('./v4.js');
+    await revokeAllAdminSessions(env);
+  } catch (_e) {}
+
+  await addAuditLog(env, 'راه‌اندازی اولیه مدیر', 'Initial administrator account created', clientIp);
   return true;
 }
 
@@ -476,8 +467,27 @@ export async function verifyAdminPassword(env = {}, candidatePassword) {
   if (!cleanPass) return false;
   const hash = await getAdminPasswordHash(env);
   if (!hash) return false;
-  const candHash = await sha256Hex(cleanPass);
-  return candHash === hash;
+  const result = await verifyPassword(cleanPass, hash);
+  if (!result.ok) return false;
+
+  // ارتقای خودکار هش قدیمی SHA-256 به PBKDF2 پس از ورود موفق
+  if (result.needsRehash) {
+    try {
+      const upgraded = await hashPassword(cleanPass);
+      memoryStore.adminPasswordHash = upgraded;
+      const detectedD1 = detectD1Binding(env);
+      if (detectedD1 && memoryStore.d1SchemaReady) {
+        await detectedD1.db.prepare(
+          `INSERT INTO system_config (key, value, updated_at) VALUES ('admin_password_hash', ?, ?)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+        ).bind(upgraded, Date.now()).run();
+      }
+      const detectedKv = detectKvBinding(env);
+      if (detectedKv) await detectedKv.kv.put('admin_password_hash', upgraded);
+      await addAuditLog(env, 'ارتقای الگوریتم رمز عبور', 'Password hash upgraded to PBKDF2', '');
+    } catch (_e) {}
+  }
+  return true;
 }
 
 export async function changeAdminPassword(env = {}, currentPassword, newPassword, clientIp = '') {
@@ -585,7 +595,10 @@ export async function resetGlobalConfig(env = {}) {
 
   if (detectedD1 && memoryStore.d1SchemaReady) {
     try {
-      await detectedD1.db.prepare(`DELETE FROM system_config WHERE key != 'admin_password_hash'`).run();
+      // اعتبارنامه مدیر و رازهای ارائه‌دهنده با بازنشانی تنظیمات پاک نمی‌شوند
+      await detectedD1.db.prepare(
+        `DELETE FROM system_config WHERE key != 'admin_password_hash' AND key NOT LIKE 'cf!_%' ESCAPE '!'`
+      ).run();
     } catch (_e) {}
   }
   if (detectedKv) {
@@ -635,14 +648,15 @@ export async function getUserByIdOrToken(env = {}, token = '') {
   return null;
 }
 
-// ایجاد کاربر جدید با قفل سخت‌گیرانه حداکثر ۳ کاربر
+// ایجاد کاربر جدید با قفل سخت‌گیرانه حداکثر ۵ کاربر
 export async function createUser(env = {}, payload = {}, clientIp = '') {
   await ensureD1Schema(env);
 
-  // محدودیت قطعی حداکثر ۳ کاربر طبق درخواست کاربر
+  // محدودیت قطعی حداکثر MAX_USERS_LIMIT کاربر (پیش‌بررسی برای پاسخ سریع؛
+  // درج نهایی با INSERT ... SELECT ... WHERE COUNT(*) < LIMIT به‌صورت اتمیک انجام می‌شود)
   const currentUsers = await listUsers(env);
   if (currentUsers.length >= MAX_USERS_LIMIT) {
-    throw new Error(`سقف مجاز ایجاد کاربر (حداکثر ${MAX_USERS_LIMIT} کاربر) پر شده است. برای افزودن کاربر جدید، لطفاً یکی از کاربران قبلی را حذف کنید.`);
+    throw new Error(`LIMIT_REACHED: سقف مجاز ایجاد کاربر (حداکثر ${MAX_USERS_LIMIT} کاربر) پر شده است. برای افزودن کاربر جدید، لطفاً یکی از کاربران قبلی را حذف کنید.`);
   }
 
   const globalCfg = await loadGlobalConfig(env);
@@ -744,15 +758,17 @@ export async function createUser(env = {}, payload = {}, clientIp = '') {
 
   const detectedD1 = detectD1Binding(env);
   if (detectedD1 && memoryStore.d1SchemaReady) {
+    let res;
     try {
-      await safeBind(
+      res = await safeBind(
         detectedD1.db.prepare(
           `INSERT INTO users (
             id, username, uuid, sub_node_count, status, enabled,
             data_limit_gb, used_bytes, lifetime_bytes, request_count,
             expire_days, expire_at, start_on_first_use, first_connected_at,
             ip_limit, node_scope, preset, note, config_json, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            WHERE (SELECT COUNT(*) FROM users) < ?`
         ),
         userObj.id,
         userObj.username,
@@ -774,12 +790,26 @@ export async function createUser(env = {}, payload = {}, clientIp = '') {
         userObj.note,
         JSON.stringify(userObj.config),
         now,
-        now
+        now,
+        MAX_USERS_LIMIT
       ).run();
-    } catch (_e) {}
+    } catch (err) {
+      memoryStore.users.delete(id);
+      throw new Error('ساخت کاربر ناموفق بود (UUID یا شناسه تکراری است).');
+    }
+
+    const changes = Number(res?.meta?.changes ?? res?.changes ?? 0);
+    if (!changes) {
+      memoryStore.users.delete(id);
+      const remaining = await listUsers(env);
+      if (remaining.length >= MAX_USERS_LIMIT) {
+        throw new Error(`LIMIT_REACHED: سقف مجاز ایجاد کاربر (حداکثر ${MAX_USERS_LIMIT} کاربر) پر شده است.`);
+      }
+      throw new Error('ساخت کاربر ناموفق بود؛ دوباره تلاش کنید.');
+    }
   }
 
-  await addAuditLog(env, 'ساخت کاربر جدید', `${userObj.username} (${currentUsers.length + 1}/3)`, clientIp);
+  await addAuditLog(env, 'ساخت کاربر جدید', `${userObj.username} (${currentUsers.length + 1}/${MAX_USERS_LIMIT})`, clientIp);
   return userObj;
 }
 
@@ -996,6 +1026,29 @@ export async function recordUserActivity(env = {}, userId, bytesDelta = 0, reqDe
         now,
         userId
       ).run();
+
+      // آمار ساعتی سراسری و مصرف روزانه هر کاربر (منبع: شمارنده واقعی استریم ورکر)
+      await safeBind(
+        detectedD1.db.prepare(
+          `INSERT INTO traffic_hourly (hour_key, bytes, requests) VALUES (?, ?, ?)
+           ON CONFLICT(hour_key) DO UPDATE SET bytes = bytes + excluded.bytes, requests = requests + excluded.requests`
+        ),
+        hourKey,
+        Math.max(0, Number(bytesDelta) || 0),
+        Math.max(0, Number(reqDelta) || 0)
+      ).run();
+      try {
+        await safeBind(
+          detectedD1.db.prepare(
+            `INSERT INTO usage_daily (user_id, day_key, bytes, requests, source) VALUES (?, ?, ?, ?, 'worker-stream')
+             ON CONFLICT(user_id, day_key, source) DO UPDATE SET bytes = bytes + excluded.bytes, requests = requests + excluded.requests`
+          ),
+          userId,
+          new Date(now).toISOString().slice(0, 10),
+          Math.max(0, Number(bytesDelta) || 0),
+          Math.max(0, Number(reqDelta) || 0)
+        ).run();
+      } catch (_e) {}
     } catch (_e) {}
   }
 }

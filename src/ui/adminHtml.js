@@ -1,1788 +1,1357 @@
 // ============================================================================
-// miliconfig v3.1 - مرکز کنترل سیستم‌عامل مدیریت (تم Z-E-U-S)
-// بدون ایموجی - تمام آیکون‌ها SVG اختصاصی - دکمه‌ها با event delegation
+// miliconfigOS v4.0 - Admin workspace
+// Server-rendered shell + vanilla ES client. All data comes from /api/v1.
+// No secrets are injected into the HTML.
 // ============================================================================
 
-import {
-  BRAND_NAME,
-  BRAND_UPPER,
-  CF_PORT_CHOICES,
-  CONFIG_DEFAULTS,
-  COUNTRY_PROXY_SOURCES,
-  DNS_PRESETS,
-  ECH_DOMAINS,
-  FINGERPRINT_PRESETS,
-  FRAGMENT_PRESETS,
-  MAX_USERS_LIMIT,
-  PATH_PATTERNS,
-  TELEGRAM_SUPPORT,
-  VERSION
-} from '../config/defaults.js';
-import { USER_PRESETS } from '../config/presets.js';
-import { FAVICON_DATA_URI, SHIELD_LOGO_SVG, icon, stripEmoji } from './icons.js';
+import { FAVICON_DATA_URI } from './icons.js';
 
-const SUPPORT_URL = `https://t.me/${String(TELEGRAM_SUPPORT).replace(/^@/, '')}`;
-
-// دیکشنری دوزبانه پنل (فارسی / انگلیسی)
-const PANEL_I18N = {
+const T = {
   fa: {
-    'nav.dashboard': 'داشبورد', 'nav.users': 'کاربران', 'nav.settings': 'تنظیمات',
-    'nav.scanner': 'اسکنر', 'nav.locations': 'چندلوکیشن',
-    'top.support': 'پشتیبانی', 'top.multi': 'چندلوکیشن', 'top.theme': 'حالت روز', 'top.lang': 'English',
-    'panel.dashboard': 'داشبورد', 'panel.dashboardSub': 'وضعیت زنده سیستم و مصرف',
-    'panel.users': 'کاربران', 'panel.usersSub': 'مدیریت اشتراک و محدودیت',
-    'panel.settings': 'تنظیمات', 'panel.settingsSub': 'هسته پروکسی، شبکه و پنل',
-    'panel.scanner': 'اسکنر زنده', 'panel.scannerSub': 'دریافت زنده پروکسی و آی‌پی ثابت (IPv4/IPv6) به تفکیک کشور',
-    'panel.locations': 'چندلوکیشن', 'panel.locationsSub': 'ساب‌لینک به تفکیک کشور',
-    'btn.reload': 'بروزرسانی', 'btn.createUser': 'ایجاد کاربر', 'btn.newUser': 'کاربر جدید',
-    'btn.save': 'ذخیره تنظیمات', 'btn.reset': 'بازنشانی پیش‌فرض', 'btn.copyMaster': 'کپی ساب‌لینک اصلی',
-    'btn.scan': 'دریافت و تست', 'btn.password': 'تغییر رمز مدیر',
-    'metric.users': 'کاربران فعال', 'metric.traffic': 'حجم مصرف‌شده',
-    'metric.ips': 'آی‌پی‌های سالم', 'metric.protocols': 'پروتکل‌های فعال',
-    'settings.protocols': 'پروتکل‌ها و قابلیت‌ها', 'settings.network': 'شبکه و ترنسپورت', 'settings.panel': 'پنل و امنیت',
-    'scanner.country': 'کشور', 'scanner.kind': 'نوع', 'scanner.family': 'خانواده آی‌پی',
-    'scanner.count': 'تعداد', 'scanner.addCfIps': 'افزودن IPهای پیش‌فرض CFnew به yx',
-    'scanner.addCfDomains': 'افزودن دامنه‌های پیش‌فرض CFnew به yx',
-    'modal.create': 'ایجاد کاربر جدید', 'modal.username': 'نام کاربری', 'modal.preset': 'پریست',
-    'modal.limit': 'حجم مجاز (GB) — صفر برای نامحدود', 'modal.days': 'مدت اعتبار (روز) — صفر برای بدون انقضا',
-    'modal.nodes': 'تعداد نود در ساب‌لینک', 'modal.createBtn': 'ساخت کاربر', 'modal.cancel': 'انصراف',
-    'modal.advanced': 'تنظیمات منحصر به فرد این کاربر',
-    'modal.password': 'تغییر رمز مدیر', 'modal.old': 'رمز فعلی', 'modal.new': 'رمز جدید',
-    'modal.confirmNew': 'تکرار رمز جدید', 'modal.savePassword': 'ذخیره رمز',
-    'field.echDomain': 'دامنه ECH', 'field.dns': 'DNS سفارشی (DoH)', 'field.fragPreset': 'پریست فرگمنت',
-    'field.ports': 'پورت‌های نود (ports)', 'field.fp': 'فینگرپرینت TLS', 'field.patt': 'الگوی مسیر (patt)',
-    'field.rotation': 'چرخش آی‌پی', 'field.proxyIP': 'ProxyIP سفارشی (p)', 'field.locCount': 'تعداد نود چندلوکیشن',
-    'field.outProxy': 'پروکسی خروجی (s)', 'field.dnsHint': 'یک DNS از لیست انتخاب کنید یا مقدار دلخواه DoH بنویسید.',
-    'field.adminPath': 'مسیر مدیریت (رندوم)', 'field.customPath': 'مسیر سفارشی پنل (d)',
-    'field.homepage': 'صفحه استتار (homepage)', 'field.yx': 'نودهای ترجیحی (yx)', 'field.nodeCount': 'تعداد نود هر کاربر',
-    'warn.title': 'هشدار تداخل تنظیمات:',
-    'card.usage': 'مصرف', 'card.expiry': 'انقضا', 'card.unlimited': 'نامحدود',
-    'card.noExpiry': 'بدون انقضا', 'card.nodes': 'نود', 'card.active': 'فعال',
-    'card.inactive': 'غیرفعال', 'card.preset': 'پریست', 'card.subscription': 'اشتراک فعال',
-    'btn.copySub': 'ساب', 'btn.status': 'وضعیت', 'btn.resetUser': 'ریست', 'btn.testNodes': 'تست اتصال',
-    'btn.rotatePath': 'مسیر جدید', 'btn.addToYx': 'افزودن به yx', 'btn.connectS': 'اتصال به s',
-    'scan.colCountry': 'کشور', 'scan.colAddr': 'آدرس / پورت', 'scan.colType': 'نوع / پروتکل',
-    'scan.colPing': 'پینگ', 'scan.colStatus': 'وضعیت', 'scan.colAction': 'عملیات',
-    'scan.online': 'آنلاین', 'scan.unverified': 'پیشنهادی', 'scan.ipStatic': 'آی‌پی ثابت',
-    'scan.proxy': 'پروکسی', 'scan.domain': 'دامنه', 'scan.idle': 'برای شروع، دریافت و تست را بزنید.',
-    'scan.testing': 'در حال تست...', 'scan.none': 'موردی یافت نشد.',
-    'toast.copied': 'در حافظه کپی شد', 'toast.linkCopied': 'لینک کپی شد',
-    'toast.masterCopied': 'ساب‌لینک اصلی کپی شد', 'toast.saveOk': 'تنظیمات ذخیره شد',
-    'toast.saveErr': 'خطا در ذخیره تنظیمات', 'toast.network': 'خطای شبکه',
-    'toast.testingNodes': 'در حال تست اتصال نودها...', 'toast.rotateConfirm': 'مسیر مدیریت عوض شود؟ مسیر قبلی دیگر کار نمی‌کند.'
+    dashboard: 'داشبورد', users: 'کاربران', endpoints: 'کاتالوگ نود', engine: 'موتور کانفیگ',
+    subscriptions: 'اشتراک‌ها', scanner: 'اسکنر', dns: 'DNS و شبکه', monitoring: 'پایش',
+    security: 'امنیت', settings: 'تنظیمات', cloudflare: 'کلادفلر', capabilities: 'ماتریس قابلیت',
+    logout: 'خروج', refresh: 'بروزرسانی', loading: 'در حال بارگذاری…', save: 'ذخیره',
+    cancel: 'انصراف', close: 'بستن', delete: 'حذف', edit: 'ویرایش', create: 'ساخت',
+    totalUsers: 'کاربران فعال', capacity: 'ظرفیت', activeSubs: 'اشتراک فعال',
+    traffic: 'ترافیک اندازه‌گیری‌شده', endpointsHealthy: 'نودهای سالم', configs: 'کانفیگ‌های تولیدشده',
+    storage: 'ذخیره‌سازی', dataPlane: 'صفحه داده', recent: 'فعالیت اخیر',
+    noData: 'داده‌ای موجود نیست', error: 'خطا', saved: 'ذخیره شد', copied: 'کپی شد',
+    username: 'نام کاربر', status: 'وضعیت', usage: 'مصرف', quota: 'حجم مجاز', expiry: 'انقضا',
+    protocols: 'پروتکل‌ها', actions: 'عملیات', enabled: 'فعال', disabled: 'غیرفعال',
+    unlimited: 'نامحدود', never: 'هرگز', addUser: 'کاربر جدید', editUser: 'ویرایش کاربر',
+    addEndpoint: 'افزودن نود', check: 'بررسی', host: 'میزبان', port: 'پورت', name: 'نام',
+    country: 'کشور', provider: 'ارائه‌دهنده', kind: 'نوع', endpointAdded: 'نود اضافه شد',
+    generate: 'تولید کانفیگ', selectUser: 'انتخاب کاربر', score: 'امتیاز', reason: 'دلیل انتخاب',
+    format: 'فرمت', protocol: 'پروتکل', transport: 'ترنسپورت', tls: 'TLS', endpoint: 'نود',
+    rejected: 'رد شده', valid: 'معتبر', rotate: 'چرخش توکن', revoke: 'لغو', enable: 'فعال‌سازی',
+    copy: 'کپی لینک', statusPage: 'صفحه وضعیت', downloads: 'دریافت ساب',
+    scanHost: 'میزبان یا دامنه', scanRun: 'اجرای اسکن', levels: 'سطوح بررسی',
+    history: 'تاریخچه', lastCheck: 'آخرین بررسی', latency: 'تأخیر', failures: 'خطاها',
+    test: 'تست', source: 'منبع', filtering: 'فیلترینگ', ipv4: 'IPv4', ipv6: 'IPv6',
+    changePassword: 'تغییر رمز عبور', currentPassword: 'رمز فعلی', newPassword: 'رمز جدید',
+    confirmPassword: 'تکرار رمز جدید', sessions: 'نشست‌های فعال', revokeSessions: 'ابطال همه نشست‌ها',
+    audit: 'لاگ حسابرسی', loginAttempts: 'تلاش‌های ورود', time: 'زمان', action: 'رویداد', details: 'جزئیات',
+    settingsGeneral: 'عمومی', settingsSecurity: 'امنیت', settingsNetwork: 'شبکه',
+    resetSettings: 'بازنشانی تنظیمات', confirmReset: 'همه تنظیمات به پیش‌فرض برمی‌گردند. ادامه می‌دهید؟',
+    connect: 'اتصال', disconnect: 'قطع اتصال', token: 'توکن API', verify: 'بررسی توکن',
+    permissions: 'مجوزهای لازم', encryption: 'رمزنگاری', notConnected: 'متصل نیست',
+    connected: 'متصل', accountId: 'شناسه حساب', workersCheck: 'بررسی استقرار Worker',
+    scriptName: 'نام اسکریپت', policy: 'سیاست', generateDone: 'کانفیگ‌ها تولید شدند',
+    noValidCombination: 'ترکیب معتبری یافت نشد', conflicts: 'تضاد تنظیمات',
+    warning: 'هشدار', danger: 'خطا', success: 'موفق', deleting: 'حذف',
+    confirmDeleteUser: 'برای حذف، نام کاربر را دقیقاً وارد کنید:', userDeleted: 'کاربر حذف شد',
+    usageSource: 'منبع اندازه‌گیری', downloadsNote: 'شمارش دانلود ساب معیار ترافیک نیست.',
+    automation: 'اتوماسیون', runNow: 'اجرای فوری', interval: 'بازه (دقیقه)', neverRun: 'اجرا نشده',
+    capabilitiesNote: 'قابلیت‌ها بر اساس پیاده‌سازی واقعی این Worker گزارش می‌شوند.',
+    theme: 'پوسته', language: 'زبان', light: 'روشن', dark: 'تیره', system: 'سیستم',
+    loginRequired: 'نشست منقضی شده است؛ صفحه بازخوانی می‌شود.',
+    confirmRevoke: 'توکن اشتراک چرخانده شود؟ لینک قبلی از کار می‌افتد.',
+    emerald: 'زمرد', cyan: 'فیروزه‌ای', violet: 'بنفش', amber: 'کهربایی',
+    qrNotAvailable: 'نمایش QR در این نسخه ارائه نشده است.', appName: 'میل‌کانفیگ‌اواس', revoked: 'لغو شده',
+    measuredTrafficNote: 'بایت‌های شمارش‌شده در تونل پروکسی این Worker؛ بازدید پنل محاسبه نمی‌شود.',
+    noTraffic: 'هنوز ترافیک اندازه‌گیری‌شده‌ای ثبت نشده است.', unknown: 'نامشخص'
   },
   en: {
-    'nav.dashboard': 'Dashboard', 'nav.users': 'Users', 'nav.settings': 'Settings',
-    'nav.scanner': 'Scanner', 'nav.locations': 'Locations',
-    'top.support': 'Support', 'top.multi': 'Locations', 'top.theme': 'Light mode', 'top.lang': 'فارسی',
-    'panel.dashboard': 'Dashboard', 'panel.dashboardSub': 'Live system status and usage',
-    'panel.users': 'Users', 'panel.usersSub': 'Subscriptions and limits',
-    'panel.settings': 'Settings', 'panel.settingsSub': 'Proxy core, network and panel',
-    'panel.scanner': 'Live scanner', 'panel.scannerSub': 'Live proxies and static IPs (IPv4/IPv6) by country',
-    'panel.locations': 'Locations', 'panel.locationsSub': 'Country-specific subscriptions',
-    'btn.reload': 'Refresh', 'btn.createUser': 'Create user', 'btn.newUser': 'New user',
-    'btn.save': 'Save settings', 'btn.reset': 'Reset defaults', 'btn.copyMaster': 'Copy master subscription',
-    'btn.scan': 'Fetch & test', 'btn.password': 'Change admin password',
-    'metric.users': 'Active users', 'metric.traffic': 'Traffic used',
-    'metric.ips': 'Healthy IPs', 'metric.protocols': 'Active protocols',
-    'settings.protocols': 'Protocols & features', 'settings.network': 'Network & transport', 'settings.panel': 'Panel & security',
-    'scanner.country': 'Country', 'scanner.kind': 'Type', 'scanner.family': 'IP family',
-    'scanner.count': 'Count', 'scanner.addCfIps': 'Add CFnew default IPs to yx',
-    'scanner.addCfDomains': 'Add CFnew default domains to yx',
-    'modal.create': 'Create new user', 'modal.username': 'Username', 'modal.preset': 'Preset',
-    'modal.limit': 'Data limit (GB) — 0 for unlimited', 'modal.days': 'Validity (days) — 0 for never',
-    'modal.nodes': 'Nodes in subscription', 'modal.createBtn': 'Create user', 'modal.cancel': 'Cancel',
-    'modal.advanced': 'Unique settings for this user',
-    'modal.password': 'Change admin password', 'modal.old': 'Current password', 'modal.new': 'New password',
-    'modal.confirmNew': 'Confirm new password', 'modal.savePassword': 'Save password',
-    'field.echDomain': 'ECH domain', 'field.dns': 'Custom DNS (DoH)', 'field.fragPreset': 'Fragment preset',
-    'field.ports': 'Node ports (ports)', 'field.fp': 'TLS fingerprint', 'field.patt': 'Path pattern (patt)',
-    'field.rotation': 'IP rotation', 'field.proxyIP': 'Custom ProxyIP (p)', 'field.locCount': 'Location node count',
-    'field.outProxy': 'Outbound proxy (s)', 'field.dnsHint': 'Pick a DNS from the list or type a custom DoH value.',
-    'field.adminPath': 'Admin path (random)', 'field.customPath': 'Custom panel path (d)',
-    'field.homepage': 'Camouflage page (homepage)', 'field.yx': 'Preferred nodes (yx)', 'field.nodeCount': 'Nodes per user',
-    'warn.title': 'Settings conflict warning:',
-    'card.usage': 'Usage', 'card.expiry': 'Expiry', 'card.unlimited': 'Unlimited',
-    'card.noExpiry': 'No expiry', 'card.nodes': 'nodes', 'card.active': 'Active',
-    'card.inactive': 'Disabled', 'card.preset': 'Preset', 'card.subscription': 'Active subscription',
-    'btn.copySub': 'Sub', 'btn.status': 'Status', 'btn.resetUser': 'Reset', 'btn.testNodes': 'Test',
-    'btn.rotatePath': 'New path', 'btn.addToYx': 'Add to yx', 'btn.connectS': 'Connect to s',
-    'scan.colCountry': 'Country', 'scan.colAddr': 'Address / port', 'scan.colType': 'Type / protocol',
-    'scan.colPing': 'Ping', 'scan.colStatus': 'Status', 'scan.colAction': 'Action',
-    'scan.online': 'Online', 'scan.unverified': 'Suggested', 'scan.ipStatic': 'Static IP',
-    'scan.proxy': 'Proxy', 'scan.domain': 'Domain', 'scan.idle': 'Press fetch & test to start.',
-    'scan.testing': 'Testing...', 'scan.none': 'Nothing found.',
-    'toast.copied': 'Copied', 'toast.linkCopied': 'Link copied',
-    'toast.masterCopied': 'Master subscription copied', 'toast.saveOk': 'Settings saved',
-    'toast.saveErr': 'Failed to save settings', 'toast.network': 'Network error',
-    'toast.testingNodes': 'Testing node connectivity...', 'toast.rotateConfirm': 'Rotate the admin path? The old path will stop working.'
+    dashboard: 'Dashboard', users: 'Users', endpoints: 'Node catalog', engine: 'Config engine',
+    subscriptions: 'Subscriptions', scanner: 'Scanner', dns: 'DNS & network', monitoring: 'Monitoring',
+    security: 'Security', settings: 'Settings', cloudflare: 'Cloudflare', capabilities: 'Capability matrix',
+    logout: 'Sign out', refresh: 'Refresh', loading: 'Loading…', save: 'Save',
+    cancel: 'Cancel', close: 'Close', delete: 'Delete', edit: 'Edit', create: 'Create',
+    totalUsers: 'Active users', capacity: 'Capacity', activeSubs: 'Active subscriptions',
+    traffic: 'Measured traffic', endpointsHealthy: 'Healthy endpoints', configs: 'Generated configs',
+    storage: 'Storage', dataPlane: 'Data plane', recent: 'Recent activity',
+    noData: 'No data available', error: 'Error', saved: 'Saved', copied: 'Copied',
+    username: 'Username', status: 'Status', usage: 'Usage', quota: 'Quota', expiry: 'Expiry',
+    protocols: 'Protocols', actions: 'Actions', enabled: 'Enabled', disabled: 'Disabled',
+    unlimited: 'Unlimited', never: 'Never', addUser: 'New user', editUser: 'Edit user',
+    addEndpoint: 'Add endpoint', check: 'Check', host: 'Host', port: 'Port', name: 'Name',
+    country: 'Country', provider: 'Provider', kind: 'Kind', endpointAdded: 'Endpoint added',
+    generate: 'Generate configurations', selectUser: 'Select user', score: 'Score', reason: 'Selection reason',
+    format: 'Format', protocol: 'Protocol', transport: 'Transport', tls: 'TLS', endpoint: 'Endpoint',
+    rejected: 'Rejected', valid: 'Valid', rotate: 'Rotate token', revoke: 'Revoke', enable: 'Enable',
+    copy: 'Copy link', statusPage: 'Status page', downloads: 'Subscription fetches',
+    scanHost: 'Host or domain', scanRun: 'Run scan', levels: 'Check levels',
+    history: 'History', lastCheck: 'Last check', latency: 'Latency', failures: 'Failures',
+    test: 'Test', source: 'Source', filtering: 'Filtering', ipv4: 'IPv4', ipv6: 'IPv6',
+    changePassword: 'Change password', currentPassword: 'Current password', newPassword: 'New password',
+    confirmPassword: 'Confirm new password', sessions: 'Active sessions', revokeSessions: 'Revoke all sessions',
+    audit: 'Audit log', loginAttempts: 'Login attempts', time: 'Time', action: 'Action', details: 'Details',
+    settingsGeneral: 'General', settingsSecurity: 'Security', settingsNetwork: 'Network',
+    resetSettings: 'Reset settings', confirmReset: 'All settings will return to defaults. Continue?',
+    connect: 'Connect', disconnect: 'Disconnect', token: 'API token', verify: 'Verify token',
+    permissions: 'Required permissions', encryption: 'Encryption', notConnected: 'Not connected',
+    connected: 'Connected', accountId: 'Account ID', workersCheck: 'Check Worker deployment',
+    scriptName: 'Script name', policy: 'Policy', generateDone: 'Configurations generated', noValidCombination: 'No valid combination found',
+    conflicts: 'Setting conflicts', warning: 'Warning', danger: 'Error', success: 'Success', deleting: 'Delete',
+    confirmDeleteUser: 'Type the exact username to delete:', userDeleted: 'User deleted',
+    usageSource: 'Measurement source', downloadsNote: 'Subscription fetches are not traffic.',
+    automation: 'Automation', runNow: 'Run now', interval: 'Interval (min)', neverRun: 'Never run',
+    capabilitiesNote: 'Capabilities reflect what this Worker actually implements.',
+    theme: 'Theme', language: 'Language', light: 'Light', dark: 'Dark', system: 'System',
+    loginRequired: 'Your session expired; reloading the page.',
+    confirmRevoke: 'Rotate the subscription token? The previous link stops working.',
+    emerald: 'Emerald', cyan: 'Cyan', violet: 'Violet', amber: 'Amber',
+    qrNotAvailable: 'QR display is not included in this version.', appName: 'MiliconfigOS', revoked: 'Revoked',
+    measuredTrafficNote: 'Bytes counted while this Worker pipes proxied traffic; panel visits are excluded.',
+    noTraffic: 'No measured traffic recorded yet.', unknown: 'Unknown'
   }
 };
 
-function countryOptions() {
-  return Object.entries(COUNTRY_PROXY_SOURCES)
-    .map(([code, c]) => `<option value="${code}">${c.name} — ${code}</option>`)
-    .join('');
+function esc(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
-export function renderAdminDashboardHtml(initialData = {}) {
-  const config = initialData.config || CONFIG_DEFAULTS;
-  const safeInitialJson = JSON.stringify({
-    brand: BRAND_NAME,
-    version: VERSION,
-    defaults: CONFIG_DEFAULTS,
-    presets: USER_PRESETS,
-    config,
-    users: initialData.users || [],
-    diagnostics: initialData.diagnostics || {},
-    adminPath: initialData.adminPath || '',
-    countrySources: COUNTRY_PROXY_SOURCES,
-    maxUsersLimit: MAX_USERS_LIMIT,
-    telegramSupport: TELEGRAM_SUPPORT,
-    dnsPresets: DNS_PRESETS,
-    portChoices: CF_PORT_CHOICES,
-    echDomains: ECH_DOMAINS,
-    officialIps: initialData.officialIps || [],
-    officialIpv6: initialData.officialIpv6 || [],
-    directDomains: initialData.directDomains || [],
-    i18n: PANEL_I18N
-  }).replace(/</g, '\\u003c');
+export function renderAdminDashboardHtml(options = {}) {
+  const config = options.config || {};
+  const diagnostics = options.diagnostics || {};
+  const adminPath = String(options.adminPath || 'admin');
+  const version = String(options.version || 'v4.0');
+  const appName = String(config.appName || 'MiliconfigOS');
+  const defaultLang = config.language === 'en' ? 'en' : 'fa';
+  const accent = ['emerald', 'cyan', 'violet', 'amber'].includes(config.accent) ? config.accent : 'emerald';
+  const animations = config.animations === 'no' ? 'no' : 'yes';
+  const boot = {
+    lang: defaultLang,
+    appName,
+    version,
+    adminPath,
+    storage: diagnostics.d1Enabled ? 'd1' : 'degraded',
+    maxUsers: diagnostics.maxUsersLimit || 5
+  };
 
-  const clientIcons = JSON.stringify({
-    copy: icon('copy'),
-    trash: icon('trash'),
-    refresh: icon('refresh'),
-    plus: icon('plus'),
-    link: icon('link'),
-    external: icon('external'),
-    bolt: icon('bolt'),
-    globe: icon('globe'),
-    radar: icon('radar'),
-    gauge: icon('gauge'),
-    check: icon('check'),
-    clock: icon('clock'),
-    power: icon('power'),
-    layers: icon('layers')
-  });
-
-  const ssmethods = ['none'];
-  const ipRotationOptions = [
-    ['off', 'غیرفعال'],
-    ['5m', 'هر ۵ دقیقه'],
-    ['15m', 'هر ۱۵ دقیقه'],
-    ['30m', 'هر ۳۰ دقیقه'],
-    ['1h', 'هر ۱ ساعت'],
-    ['24h', 'هر ۲۴ ساعت']
-  ];
-
-  const presetOptions = Object.entries(USER_PRESETS)
-    .map(([id, p]) => `<option value="${id}">${p.title || id}</option>`)
-    .join('');
-
-  return stripEmoji(`<!DOCTYPE html>
-<html lang="fa" dir="rtl">
+  return `<!DOCTYPE html>
+<html lang="${defaultLang}" dir="${defaultLang === 'fa' ? 'rtl' : 'ltr'}" data-theme="dark" data-accent="${esc(accent)}" data-motion="${animations}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>${BRAND_UPPER} ${VERSION} — مرکز کنترل</title>
+<meta name="robots" content="noindex, nofollow">
+<title>${esc(appName)} · ${esc(version)}</title>
 <link rel="icon" href="${FAVICON_DATA_URI}">
+<script>
+(function(){
+  try {
+    var t = localStorage.getItem('mili.theme') || 'system';
+    var dark = t === 'dark' || (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    var l = localStorage.getItem('mili.lang');
+    if (l === 'en' || l === 'fa') {
+      document.documentElement.lang = l;
+      document.documentElement.dir = l === 'fa' ? 'rtl' : 'ltr';
+    }
+  } catch (e) {}
+})();
+</script>
 <style>
-  :root {
-    --bg: #05080a;
-    --bg-soft: #070c0e;
-    --panel: rgba(9, 15, 13, 0.92);
-    --panel-2: rgba(12, 20, 16, 0.9);
-    --line: rgba(181, 255, 77, 0.13);
-    --line-strong: rgba(181, 255, 77, 0.34);
-    --neon: #b5ff4d;
-    --neon-soft: rgba(181, 255, 77, 0.1);
-    --neon-glow: rgba(181, 255, 77, 0.28);
-    --text: #e9f3e2;
-    --muted: #85957f;
-    --muted-2: #5d6b59;
-    --danger: #ff6262;
-    --warn: #ffce5c;
-    --info: #63e6d4;
-    --radius: 18px;
-    --shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
-    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
-    --font: "Vazirmatn", "Segoe UI", Tahoma, system-ui, sans-serif;
-  }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; }
-  body {
-    font-family: var(--font);
-    background: var(--bg);
-    color: var(--text);
-    min-height: 100vh;
-    padding-bottom: 108px;
-    -webkit-font-smoothing: antialiased;
-  }
-  body::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    z-index: -2;
-    background:
-      radial-gradient(900px 480px at 82% -8%, rgba(181, 255, 77, 0.11), transparent 65%),
-      radial-gradient(700px 420px at 8% 4%, rgba(99, 230, 212, 0.06), transparent 60%),
-      linear-gradient(180deg, #060a0b 0%, #040607 100%);
-  }
-  body::after {
-    content: "";
-    position: fixed;
-    inset: 0;
-    z-index: -1;
-    background-image:
-      linear-gradient(rgba(181, 255, 77, 0.035) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(181, 255, 77, 0.035) 1px, transparent 1px);
-    background-size: 46px 46px;
-    mask-image: radial-gradient(circle at 50% 0%, #000 0%, transparent 78%);
-    opacity: 0.55;
-    pointer-events: none;
-  }
-  /* ---------- light theme (پنل، نه فقط صفحه ورود) ---------- */
-  body.light-mode {
-    --bg: #eef3f0;
-    --bg-soft: #f7faf8;
-    --panel: rgba(255, 255, 255, 0.94);
-    --panel-2: rgba(248, 252, 249, 0.94);
-    --line: rgba(6, 118, 71, 0.16);
-    --line-strong: rgba(6, 118, 71, 0.38);
-    --neon: #0b8a4b;
-    --neon-soft: rgba(11, 138, 75, 0.1);
-    --neon-glow: rgba(11, 138, 75, 0.22);
-    --text: #0c1a12;
-    --muted: #5a6d60;
-    --muted-2: #7a8b7f;
-    --shadow: 0 20px 50px rgba(15, 40, 25, 0.12);
-  }
-  body.light-mode::before {
-    background:
-      radial-gradient(900px 480px at 82% -8%, rgba(11, 138, 75, 0.1), transparent 65%),
-      radial-gradient(700px 420px at 8% 4%, rgba(2, 132, 199, 0.08), transparent 60%),
-      linear-gradient(180deg, #f7faf8 0%, #eaf0ec 100%);
-  }
-  body.light-mode::after {
-    background-image:
-      linear-gradient(rgba(11, 138, 75, 0.05) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(11, 138, 75, 0.05) 1px, transparent 1px);
-    opacity: 0.7;
-  }
-  body.light-mode .topbar { background: rgba(250, 253, 251, 0.9); }
-  body.light-mode .window { background: linear-gradient(180deg, #ffffff, #f6faf7); }
-  body.light-mode .metric,
-  body.light-mode .card,
-  body.light-mode .user-card,
-  body.light-mode .loc-card { background: #ffffff; }
-  body.light-mode .dock { background: rgba(255, 255, 255, 0.95); }
-  body.light-mode .modal-card { background: #ffffff; }
-  body.light-mode .toast-body { background: #ffffff; color: #0c1a12; }
-  body.light-mode .field input,
-  body.light-mode .field select,
-  body.light-mode .field textarea { background: #ffffff; color: #0c1a12; border-color: var(--line); }
-  body.light-mode .btn { background: #ffffff; color: #0c1a12; }
-  body.light-mode .btn.primary { color: #06130b; }
-  body.light-mode table.scan th { background: rgba(11, 138, 75, 0.06); }
-  body.light-mode .icon-btn { background: #ffffff; color: #0c1a12; }
-  body.light-mode .chip { background: #ffffff; }
-  body.light-mode .scan-status { color: #5a6d60; }
-  body.light-mode .dock-item { color: #4b5c50; }
-  body.light-mode .switch i { background: #cfdcd4; }
-
-  .mi { width: 20px; height: 20px; display: inline-block; vertical-align: middle; flex: none; }
-  .mi-sm { width: 16px; height: 16px; }
-  .mi-lg { width: 26px; height: 26px; }
-
-  /* ---------- top bar ---------- */
-  .topbar {
-    position: sticky;
-    top: 0;
-    z-index: 40;
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    padding: 12px 22px;
-    background: rgba(5, 8, 10, 0.82);
-    backdrop-filter: blur(18px);
-    border-bottom: 1px solid var(--line);
-  }
-  .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
-  .brand .mili-shield-svg { width: 38px; height: 38px; flex: none; }
-  .brand-text { line-height: 1.15; }
-  .brand-name { font-size: 1.02rem; font-weight: 800; letter-spacing: 0.4px; }
-  .brand-name span { color: var(--neon); }
-  .brand-ver {
-    font-family: var(--mono);
-    font-size: 0.68rem;
-    color: var(--muted);
-    letter-spacing: 0.6px;
-  }
-  .topbar-spacer { flex: 1; }
-  .chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    padding: 6px 11px;
-    border-radius: 999px;
-    border: 1px solid var(--line);
-    background: rgba(255, 255, 255, 0.025);
-    font-size: 0.76rem;
-    color: var(--muted);
-    white-space: nowrap;
-  }
-  .chip b { color: var(--text); font-weight: 700; }
-  .chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--neon); box-shadow: 0 0 10px var(--neon-glow); }
-  .chip.warn .dot { background: var(--warn); box-shadow: 0 0 10px rgba(255, 206, 92, 0.4); }
-  .icon-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 7px;
-    padding: 8px 12px;
-    border-radius: 11px;
-    border: 1px solid var(--line);
-    background: rgba(255, 255, 255, 0.03);
-    color: var(--text);
-    font-family: inherit;
-    font-size: 0.78rem;
-    cursor: pointer;
-    transition: 0.16s;
-  }
-  .icon-btn:hover { border-color: var(--line-strong); background: var(--neon-soft); color: var(--neon); }
-  .icon-btn.danger:hover { border-color: rgba(255, 98, 98, 0.5); background: rgba(255, 98, 98, 0.1); color: var(--danger); }
-  .topbar .hide-sm { display: inline-flex; }
-
-  /* ---------- main ---------- */
-  .main { max-width: 1180px; margin: 0 auto; padding: 24px 20px 10px; }
-  .panel { display: none; animation: rise 0.32s ease both; }
-  .panel.is-active { display: block; }
-  @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-
-  .window {
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    background: linear-gradient(180deg, rgba(12, 19, 16, 0.96), rgba(6, 10, 9, 0.94));
-    box-shadow: var(--shadow);
-    overflow: hidden;
-    margin-bottom: 20px;
-  }
-  .window-head {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 13px 18px;
-    border-bottom: 1px solid var(--line);
-    background: linear-gradient(90deg, rgba(181, 255, 77, 0.06), transparent 55%);
-  }
-  .dots { display: inline-flex; gap: 6px; margin-inline-start: 2px; }
-  .dots i { width: 8px; height: 8px; border-radius: 50%; display: block; background: #2b3a2c; }
-  .dots i:nth-child(1) { background: #ff6b6b; }
-  .dots i:nth-child(2) { background: #ffce5c; }
-  .dots i:nth-child(3) { background: #b5ff4d; }
-  .window-title { display: flex; align-items: center; gap: 9px; font-weight: 800; font-size: 0.95rem; }
-  .window-title .mi { color: var(--neon); }
-  .window-sub { color: var(--muted); font-size: 0.74rem; margin-inline-start: 4px; font-weight: 500; }
-  .window-head .spacer { flex: 1; }
-  .window-body { padding: 18px; }
-
-  /* ---------- metrics ---------- */
-  .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); gap: 14px; }
-  .metric {
-    position: relative;
-    border: 1px solid var(--line);
-    border-radius: 15px;
-    padding: 16px 16px 14px;
-    background:
-      radial-gradient(140px 90px at 100% 0%, rgba(181, 255, 77, 0.09), transparent 70%),
-      rgba(255, 255, 255, 0.018);
-    overflow: hidden;
-  }
-  .metric::after {
-    content: "";
-    position: absolute;
-    inset-inline-start: 0;
-    top: 16px;
-    bottom: 16px;
-    width: 2px;
-    background: linear-gradient(180deg, var(--neon), transparent);
-    opacity: 0.6;
-  }
-  .metric-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .metric-label { color: var(--muted); font-size: 0.78rem; }
-  .metric-icon { color: var(--neon); opacity: 0.9; }
-  .metric-value { font-size: 1.7rem; font-weight: 800; margin: 10px 0 2px; letter-spacing: 0.5px; }
-  .metric-value small { font-size: 0.86rem; color: var(--muted); font-weight: 600; margin-inline-start: 4px; }
-  .metric-foot { font-size: 0.72rem; color: var(--muted-2); }
-
-  .split { display: grid; grid-template-columns: 1.35fr 1fr; gap: 16px; margin-top: 16px; }
-  .card {
-    border: 1px solid var(--line);
-    border-radius: 15px;
-    background: rgba(255, 255, 255, 0.016);
-    padding: 16px;
-  }
-  .card h3 { margin: 0 0 12px; font-size: 0.86rem; color: var(--text); display: flex; align-items: center; gap: 8px; }
-  .card h3 .mi { color: var(--neon); width: 17px; height: 17px; }
-  .kv { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 0; border-bottom: 1px dashed rgba(181, 255, 77, 0.09); font-size: 0.8rem; }
-  .kv:last-child { border-bottom: 0; }
-  .kv span { color: var(--muted); }
-  .kv b { font-weight: 700; font-family: var(--mono); font-size: 0.78rem; }
-  .tag {
-    display: inline-flex; align-items: center; gap: 5px;
-    font-size: 0.68rem; font-weight: 700; letter-spacing: 0.2px;
-    padding: 3px 8px; border-radius: 7px;
-    border: 1px solid var(--line);
-    color: var(--muted);
-    background: rgba(255, 255, 255, 0.02);
-  }
-  .tag.on { color: var(--neon); border-color: var(--line-strong); background: var(--neon-soft); }
-  .tag.off { opacity: 0.55; }
-  .tag.mono { font-family: var(--mono); }
-
-  /* ---------- buttons ---------- */
-  .btn {
-    display: inline-flex; align-items: center; justify-content: center; gap: 7px;
-    padding: 10px 15px; border-radius: 11px;
-    border: 1px solid var(--line);
-    background: rgba(255, 255, 255, 0.025);
-    color: var(--text);
-    font-family: inherit; font-size: 0.8rem; font-weight: 700;
-    cursor: pointer; transition: 0.16s;
-  }
-  .btn .mi { width: 16px; height: 16px; }
-  .btn:hover { border-color: var(--line-strong); background: var(--neon-soft); }
-  .btn.primary {
-    background: linear-gradient(180deg, rgba(181, 255, 77, 0.95), rgba(139, 209, 42, 0.95));
-    color: #0a1206; border-color: transparent;
-    box-shadow: 0 8px 22px rgba(181, 255, 77, 0.18);
-  }
-  .btn.primary:hover { filter: brightness(1.06); background: linear-gradient(180deg, #c7ff72, #98dd33); }
-  .btn.ghost { background: transparent; }
-  .btn.danger { color: var(--danger); border-color: rgba(255, 98, 98, 0.28); }
-  .btn.danger:hover { background: rgba(255, 98, 98, 0.1); }
-  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-  .btn.sm { padding: 7px 10px; font-size: 0.72rem; border-radius: 9px; }
-  .btn.sm .mi { width: 14px; height: 14px; }
-  .toolbar { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; }
-  .toolbar .spacer { flex: 1; }
-
-  /* ---------- users ---------- */
-  .user-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
-  .user-card {
-    border: 1px solid var(--line);
-    border-radius: 15px;
-    padding: 15px;
-    background: linear-gradient(180deg, rgba(181, 255, 77, 0.035), rgba(255, 255, 255, 0.012));
-  }
-  .user-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
-  .user-name { font-weight: 800; font-size: 0.94rem; }
-  .user-uuid { font-family: var(--mono); font-size: 0.66rem; color: var(--muted-2); direction: ltr; text-align: left; margin-top: 3px; }
-  .pill { font-size: 0.68rem; font-weight: 700; padding: 4px 9px; border-radius: 999px; border: 1px solid var(--line); }
-  .pill.on { color: var(--neon); border-color: var(--line-strong); background: var(--neon-soft); }
-  .pill.off { color: var(--danger); border-color: rgba(255, 98, 98, 0.3); background: rgba(255, 98, 98, 0.08); }
-  .usage { display: flex; align-items: center; justify-content: space-between; font-size: 0.75rem; color: var(--muted); margin-top: 4px; }
-  .bar { height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.07); overflow: hidden; margin: 7px 0 2px; }
-  .bar > i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, #86c62c, #b5ff4d); }
-  .user-tags { display: flex; flex-wrap: wrap; gap: 5px; margin: 10px 0; }
-  .user-actions { display: flex; flex-wrap: wrap; gap: 6px; }
-  .empty { text-align: center; color: var(--muted); padding: 34px 12px; font-size: 0.84rem; }
-
-  /* ---------- forms ---------- */
-  .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
-  .field { display: flex; flex-direction: column; gap: 6px; }
-  .field label { font-size: 0.76rem; color: var(--muted); }
-  .field input[type="text"], .field input[type="number"], .field input[type="password"], .field select {
-    width: 100%;
-    padding: 10px 12px;
-    border-radius: 10px;
-    border: 1px solid var(--line);
-    background: rgba(0, 0, 0, 0.35);
-    color: var(--text);
-    font-family: inherit;
-    font-size: 0.82rem;
-    outline: none;
-    transition: 0.15s;
-  }
-  .field input:focus, .field select:focus { border-color: var(--line-strong); box-shadow: 0 0 0 3px rgba(181, 255, 77, 0.08); }
-  .field .hint { font-size: 0.68rem; color: var(--muted-2); }
-  .switch-row {
-    display: flex; align-items: center; justify-content: space-between; gap: 10px;
-    padding: 10px 12px; border: 1px solid var(--line); border-radius: 11px;
-    background: rgba(255, 255, 255, 0.015);
-  }
-  .switch-row .switch-meta { display: flex; align-items: center; gap: 9px; min-width: 0; }
-  .switch-row .switch-meta .mi { color: var(--neon); width: 17px; height: 17px; }
-  .switch-row .switch-meta b { font-size: 0.78rem; font-weight: 700; display: block; }
-  .switch-row .switch-meta span { font-size: 0.68rem; color: var(--muted-2); display: block; }
-  .switch { position: relative; width: 42px; height: 24px; flex: none; }
-  .switch input { position: absolute; opacity: 0; inset: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
-  .switch i {
-    position: absolute; inset: 0; border-radius: 999px;
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid var(--line);
-    transition: 0.18s;
-  }
-  .switch i::after {
-    content: ""; position: absolute; top: 3px; inset-inline-start: 3px;
-    width: 16px; height: 16px; border-radius: 50%;
-    background: #6b7a67; transition: 0.18s;
-  }
-  .switch input:checked + i { background: rgba(181, 255, 77, 0.26); border-color: var(--line-strong); }
-  .switch input:checked + i::after { background: var(--neon); inset-inline-start: 21px; box-shadow: 0 0 10px var(--neon-glow); }
-  .group-title { font-size: 0.8rem; font-weight: 800; color: var(--text); margin: 4px 0 12px; display: flex; align-items: center; gap: 8px; }
-  .group-title .mi { color: var(--neon); width: 17px; height: 17px; }
-
-  /* ---------- scanner ---------- */
-  .scan-controls { display: grid; grid-template-columns: 1.4fr 0.8fr auto; gap: 10px; align-items: end; }
-  .table-wrap { overflow-x: auto; margin-top: 14px; border: 1px solid var(--line); border-radius: 12px; }
-  table.scan { width: 100%; border-collapse: collapse; font-size: 0.78rem; min-width: 620px; }
-  table.scan th {
-    text-align: right; padding: 10px 12px; color: var(--muted);
-    font-weight: 600; font-size: 0.72rem;
-    background: rgba(255, 255, 255, 0.02);
-    border-bottom: 1px solid var(--line);
-  }
-  table.scan td { padding: 10px 12px; border-bottom: 1px solid rgba(181, 255, 77, 0.07); }
-  table.scan tr:last-child td { border-bottom: 0; }
-  table.scan tr:hover td { background: rgba(181, 255, 77, 0.03); }
-  .mono { font-family: var(--mono); direction: ltr; text-align: left; }
-  .lat-fast { color: var(--neon); }
-  .lat-med { color: var(--warn); }
-  .lat-slow { color: var(--danger); }
-  .scan-status { font-size: 0.78rem; color: var(--muted); margin-top: 10px; min-height: 18px; }
-  .scan-status.err { color: var(--danger); }
-  .warn-box {
-    margin-top: 14px; padding: 11px 13px; border-radius: 11px;
-    border: 1px solid rgba(255, 206, 92, 0.45);
-    background: rgba(255, 206, 92, 0.08);
-    color: var(--warn); font-size: 0.78rem; line-height: 1.95;
-  }
-  .warn-box b { display: block; margin-bottom: 4px; }
-  .warn-box ul { margin: 0; padding-inline-start: 18px; }
-  .code-badge {
-    display: inline-flex; align-items: center; justify-content: center;
-    min-width: 34px; padding: 3px 6px; border-radius: 7px;
-    border: 1px solid var(--line-strong);
-    background: var(--neon-soft);
-    color: var(--neon); font-family: var(--mono); font-size: 0.68rem; font-weight: 700;
-  }
-
-  /* ---------- locations ---------- */
-  .loc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(245px, 1fr)); gap: 12px; }
-  .loc-card {
-    display: flex; align-items: center; justify-content: space-between; gap: 10px;
-    border: 1px solid var(--line); border-radius: 12px; padding: 11px 12px;
-    background: rgba(255, 255, 255, 0.015);
-  }
-  .loc-name { font-size: 0.8rem; font-weight: 700; }
-  .loc-meta { font-size: 0.68rem; color: var(--muted-2); margin-top: 2px; }
-
-  /* ---------- dock ---------- */
-  .dock-wrap { position: fixed; inset-inline: 0; bottom: 14px; z-index: 60; display: flex; justify-content: center; pointer-events: none; }
-  .dock {
-    pointer-events: auto;
-    display: flex; align-items: center; gap: 4px;
-    padding: 7px;
-    border-radius: 20px;
-    border: 1px solid var(--line);
-    background: rgba(6, 10, 9, 0.9);
-    backdrop-filter: blur(20px);
-    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(0, 0, 0, 0.4) inset;
-  }
-  .dock-item {
-    appearance: none; border: 0; background: transparent; color: var(--muted);
-    display: flex; flex-direction: column; align-items: center; gap: 4px;
-    min-width: 74px; padding: 8px 10px; border-radius: 14px;
-    font-family: inherit; font-size: 0.68rem; font-weight: 600; cursor: pointer;
-    transition: 0.16s; position: relative;
-  }
-  .dock-item .mi { width: 21px; height: 21px; }
-  .dock-item:hover { color: var(--text); background: rgba(255, 255, 255, 0.04); }
-  .dock-item.is-active { color: var(--neon); background: var(--neon-soft); }
-  .dock-item.is-active::after {
-    content: ""; position: absolute; bottom: 4px; width: 4px; height: 4px; border-radius: 50%;
-    background: var(--neon); box-shadow: 0 0 8px var(--neon-glow);
-  }
-
-  /* ---------- modal / toast ---------- */
-  .modal { position: fixed; inset: 0; z-index: 90; display: none; align-items: center; justify-content: center; padding: 18px; background: rgba(2, 5, 4, 0.72); backdrop-filter: blur(6px); }
-  .modal.is-open { display: flex; }
-  .modal-card { width: min(460px, 100%); border-radius: var(--radius); border: 1px solid var(--line-strong); background: #070d0b; box-shadow: var(--shadow); overflow: hidden; }
-  .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--line); }
-  .modal-head b { font-size: 0.9rem; display: flex; align-items: center; gap: 8px; }
-  .modal-head .mi { color: var(--neon); }
-  .modal-body { padding: 16px; display: flex; flex-direction: column; gap: 12px; max-height: 74vh; overflow-y: auto; }
-  .adv-box { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: rgba(255, 255, 255, 0.015); }
-  .adv-box summary { cursor: pointer; font-size: 0.8rem; font-weight: 700; color: var(--neon); }
-  body.light-mode .adv-box { background: #f8faf9; }
-  .modal-foot { padding: 0 16px 16px; display: flex; gap: 8px; justify-content: flex-start; }
-  .toast {
-    position: fixed; z-index: 120; inset-inline: 0; bottom: 96px;
-    display: flex; justify-content: center; pointer-events: none;
-  }
-  .toast-body {
-    transform: translateY(14px); opacity: 0;
-    transition: 0.25s; max-width: 90vw;
-    padding: 10px 16px; border-radius: 12px;
-    border: 1px solid var(--line-strong);
-    background: rgba(8, 14, 11, 0.96);
-    color: var(--text); font-size: 0.8rem; font-weight: 600;
-    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.6);
-  }
-  .toast-body.show { transform: none; opacity: 1; }
-  .toast-body.err { border-color: rgba(255, 98, 98, 0.5); color: #ffb3b3; }
-  .toast-body.ok { color: var(--neon); }
-
-  @media (max-width: 820px) {
-    .main { padding: 16px 12px 6px; }
-    .topbar { padding: 10px 13px; gap: 9px; }
-    .topbar .hide-sm { display: none; }
-    .brand-ver { font-size: 0.62rem; }
-    .split { grid-template-columns: 1fr; }
-    .scan-controls { grid-template-columns: 1fr; }
-    .window-body { padding: 14px; }
-    .window-sub { display: none; }
-    .dock-item { min-width: 60px; padding: 7px 6px; font-size: 0.62rem; }
-    .dock-item .mi { width: 19px; height: 19px; }
-  }
+${ADMIN_CSS}
 </style>
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">
-      ${SHIELD_LOGO_SVG}
-      <div class="brand-text">
-        <div class="brand-name">${BRAND_NAME}<span>OS</span></div>
-        <div class="brand-ver">${BRAND_UPPER} ${VERSION}</div>
+<svg class="sprite" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="i-dash" viewBox="0 0 24 24"><path d="M4 13h6V4H4zM14 20h6v-9h-6zM4 20h6v-4H4zM14 8h6V4h-6z"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+  <symbol id="i-nodes" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/><path d="M10 6.5h4a3 3 0 0 1 3 3v4"/><circle cx="17.5" cy="6.5" r="2.5"/></symbol>
+  <symbol id="i-engine" viewBox="0 0 24 24"><path d="M12 3v3M12 18v3M4.2 7.5l2.6 1.5M17.2 15l2.6 1.5M4.2 16.5l2.6-1.5M17.2 9l2.6-1.5"/><circle cx="12" cy="12" r="4"/></symbol>
+  <symbol id="i-sub" viewBox="0 0 24 24"><path d="M4 7a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3z"/><path d="M8 9h8M8 13h5M8 17h3"/></symbol>
+  <symbol id="i-scan" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M3 12h18"/></symbol>
+  <symbol id="i-dns" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></symbol>
+  <symbol id="i-monitor" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 14l4-5 3 3 5-7"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4.3-2.9 7.9-7 9-4.1-1.1-7-4.7-7-9V6z"/><path d="M9 12l2 2 4-4"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+  <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M17.5 19a4.5 4.5 0 0 0 .5-9 6 6 0 0 0-11.6-1.5A4 4 0 0 0 6.5 19z"/></symbol>
+  <symbol id="i-matrix" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z"/></symbol>
+</svg>
+
+<div class="window">
+  <header class="titlebar">
+    <div class="tb-left">
+      <span class="dots"><i></i><i></i><i></i></span>
+      <button class="icon-btn menu-btn" type="button" data-act="menu" aria-label="Menu"><svg class="ico"><use href="#i-menu"/></svg></button>
+      <div class="brand">
+        <svg viewBox="0 0 48 48" class="logo" aria-hidden="true">
+          <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="var(--accent)"/><stop offset="1" stop-color="var(--accent-2)"/></linearGradient></defs>
+          <path d="M24 4l15 5.5v12.8C39 33 32.6 40 24 44 15.4 40 9 33 9 22.3V9.5z" fill="url(#lg)" opacity=".18"/>
+          <path d="M24 4l15 5.5v12.8C39 33 32.6 40 24 44 15.4 40 9 33 9 22.3V9.5z" fill="none" stroke="url(#lg)" stroke-width="2.2"/>
+          <circle cx="24" cy="22" r="2.6" fill="var(--accent)"/>
+          <circle cx="16" cy="16" r="2" fill="var(--accent-2)"/><circle cx="32" cy="16" r="2" fill="var(--accent-2)"/>
+          <circle cx="17" cy="29" r="2" fill="var(--accent-2)"/><circle cx="31" cy="29" r="2" fill="var(--accent-2)"/>
+          <path d="M18 17.5l4.4 3.3M30 17.5l-4.4 3.3M18.5 27.7l3.8-2.9M29.5 27.7l-3.8-2.9" stroke="var(--accent)" stroke-width="1.4" opacity=".8"/>
+        </svg>
+        <div class="brand-text">
+          <strong>${esc(appName)}</strong>
+          <span>OS ${esc(version)} · miliconfig</span>
+        </div>
       </div>
     </div>
-    <div class="topbar-spacer"></div>
-    <div class="chip hide-sm" id="storageChip"><span class="dot"></span><span id="storageText">حافظه</span></div>
-    <div class="chip"><span id="userChipText">0 / ${MAX_USERS_LIMIT}</span><span>کاربر</span></div>
-    <div class="chip hide-sm" id="clockChip">--:--</div>
-    <button class="icon-btn" type="button" data-act="toggle-theme" id="themeBtn" title="حالت روز / شب">${icon('bolt')}<span class="hide-sm" data-i18n="top.theme">حالت روز</span></button>
-    <button class="icon-btn" type="button" data-act="toggle-lang" id="langBtn" title="زبان"><span data-i18n="top.lang">English</span></button>
-    <a class="icon-btn hide-sm" href="${SUPPORT_URL}" target="_blank" rel="noopener">${icon('signal')}<span data-i18n="top.support">پشتیبانی</span></a>
-    <button class="icon-btn" type="button" data-act="open-multi" title="سابلینک چندلوکیشن">${icon('globe')}<span class="hide-sm" data-i18n="top.multi">چندلوکیشن</span></button>
-    <button class="icon-btn" type="button" data-act="open-password" title="تغییر رمز مدیر">${icon('key')}</button>
-    <button class="icon-btn danger" type="button" data-act="logout" title="خروج">${icon('logout')}</button>
+    <div class="tb-right">
+      <button class="chip" type="button" id="themeBtn" title="Theme"><span id="themeLabel">${defaultLang === 'fa' ? 'سیستم' : 'System'}</span></button>
+      <button class="chip" type="button" id="langBtn">${defaultLang === 'fa' ? 'EN' : 'فا'}</button>
+      <button class="icon-btn" type="button" data-act="refresh" title="Refresh"><svg class="ico"><use href="#i-refresh"/></svg></button>
+      <button class="icon-btn" type="button" data-act="logout" title="Sign out"><svg class="ico"><use href="#i-logout"/></svg></button>
+    </div>
   </header>
 
-  <main class="main">
-    <section class="panel is-active" data-panel="dashboard">
-      <div class="window">
-        <div class="window-head">
-          <span class="dots"><i></i><i></i><i></i></span>
-          <div class="window-title">${icon('dashboard')} <span data-i18n="panel.dashboard">داشبورد</span> <span class="window-sub" data-i18n="panel.dashboardSub">وضعیت زنده سیستم و مصرف</span></div>
-          <div class="spacer"></div>
-          <button class="btn sm ghost" type="button" data-act="reload-users">${icon('refresh')} <span data-i18n="btn.reload">بروزرسانی</span></button>
-        </div>
-        <div class="window-body">
-          <div class="metrics">
-            <div class="metric">
-              <div class="metric-top"><span class="metric-label" data-i18n="metric.users">کاربران فعال</span><span class="metric-icon">${icon('users')}</span></div>
-              <div class="metric-value" id="mUsers">0 <small>/ ${MAX_USERS_LIMIT}</small></div>
-              <div class="metric-foot" id="mUsersFoot">ظرفیت آزاد</div>
-            </div>
-            <div class="metric">
-              <div class="metric-top"><span class="metric-label" data-i18n="metric.traffic">حجم مصرف‌شده</span><span class="metric-icon">${icon('activity')}</span></div>
-              <div class="metric-value" id="mTraffic">0.00 <small>GB</small></div>
-              <div class="metric-foot">مجموع مصرف کاربران روی D1</div>
-            </div>
-            <div class="metric">
-              <div class="metric-top"><span class="metric-label" data-i18n="metric.ips">آی‌پی‌های سالم</span><span class="metric-icon">${icon('server')}</span></div>
-              <div class="metric-value" id="mIps">0 <small>نود</small></div>
-              <div class="metric-foot">CFnew + نودهای ترجیحی</div>
-            </div>
-            <div class="metric">
-              <div class="metric-top"><span class="metric-label" data-i18n="metric.protocols">پروتکل‌های فعال</span><span class="metric-icon">${icon('layers')}</span></div>
-              <div class="metric-value" id="mProto" style="font-size: 1.25rem;">—</div>
-              <div class="metric-foot">بر پایه تنظیمات ذخیره‌شده</div>
-            </div>
-          </div>
-
-          <div class="split">
-            <div class="card">
-              <h3>${icon('terminal')} وضعیت هسته</h3>
-              <div class="kv"><span>موتور پروکسی</span><b>VLESS / Trojan / xHTTP</b></div>
-              <div class="kv"><span>ذخیره‌سازی</span><b id="kvStorage">—</b></div>
-              <div class="kv"><span>بایندینگ دیتابیس</span><b id="kvBinding">—</b></div>
-              <div class="kv"><span>مسیر مدیریت</span><b id="kvPath" class="mono">—</b></div>
-              <div class="kv"><span>سقف کاربران</span><b>${MAX_USERS_LIMIT}</b></div>
-            </div>
-            <div class="card">
-              <h3>${icon('bolt')} اقدام‌های سریع</h3>
-              <div class="toolbar" style="flex-direction: column; align-items: stretch;">
-                <button class="btn primary" type="button" data-act="open-create">${icon('plus')} <span data-i18n="btn.newUser">کاربر جدید</span></button>
-                <button class="btn" type="button" data-act="go-scan">${icon('radar')} <span data-i18n="nav.scanner">اسکنر</span></button>
-                <button class="btn" type="button" data-act="copy-master">${icon('copy')} <span data-i18n="btn.copyMaster">کپی سابلینک اصلی</span></button>
-                <button class="btn ghost" type="button" data-act="go-settings">${icon('settings')} <span data-i18n="nav.settings">تنظیمات</span></button>
-              </div>
-            </div>
-          </div>
-        </div>
+  <div class="shell">
+    <aside class="sidebar" id="sidebar">
+      <nav id="nav" class="nav"></nav>
+      <div class="side-foot">
+        <div class="side-badge" id="storageBadge"></div>
+        <div class="side-note">miliconfig · Milad Jahani</div>
       </div>
-    </section>
-
-    <section class="panel" data-panel="users">
-      <div class="window">
-        <div class="window-head">
-          <span class="dots"><i></i><i></i><i></i></span>
-          <div class="window-title">${icon('users')} <span data-i18n="panel.users">کاربران</span> <span class="window-sub" data-i18n="panel.usersSub">مدیریت اشتراک و محدودیت</span></div>
-          <div class="spacer"></div>
-          <button class="btn sm ghost" type="button" data-act="reload-users">${icon('refresh')} <span data-i18n="btn.reload">بروزرسانی</span></button>
-          <button class="btn sm primary" type="button" data-act="open-create">${icon('plus')} <span data-i18n="btn.createUser">ایجاد کاربر</span></button>
-        </div>
-        <div class="window-body">
-          <div class="user-grid" id="usersGrid"></div>
-          <div class="empty" id="usersEmpty" style="display:none;">هنوز کاربری ساخته نشده است.</div>
-        </div>
-      </div>
-    </section>
-
-    <section class="panel" data-panel="settings">
-      <div class="window">
-        <div class="window-head">
-          <span class="dots"><i></i><i></i><i></i></span>
-          <div class="window-title">${icon('settings')} <span data-i18n="panel.settings">تنظیمات</span> <span class="window-sub" data-i18n="panel.settingsSub">هسته پروکسی، شبکه و پنل</span></div>
-        </div>
-        <div class="window-body">
-          <div class="group-title">${icon('layers')} <span data-i18n="settings.protocols">پروتکل‌ها و قابلیت‌ها</span></div>
-          <div class="form-grid">
-            <div class="switch-row">
-              <div class="switch-meta">${icon('shield')}<div><b>VLESS</b><span>پروتکل اصلی اشتراک</span></div></div>
-              <label class="switch"><input type="checkbox" data-key="ev"><i></i></label>
-            </div>
-            <div class="switch-row">
-              <div class="switch-meta">${icon('shield')}<div><b>Shadowsocks</b><span>پروتکل جایگزین · بدون فرگمنت</span></div></div>
-              <label class="switch"><input type="checkbox" data-key="es"><i></i></label>
-            </div>
-            <div class="switch-row">
-              <div class="switch-meta">${icon('shield')}<div><b>Trojan</b><span>پورت و رمز عبور</span></div></div>
-              <label class="switch"><input type="checkbox" data-key="et"><i></i></label>
-            </div>
-            <div class="switch-row">
-              <div class="switch-meta">${icon('terminal')}<div><b>xHTTP</b><span>استریمینگ HTTP جدید</span></div></div>
-              <label class="switch"><input type="checkbox" data-key="ex"><i></i></label>
-            </div>
-            <div class="switch-row">
-              <div class="switch-meta">${icon('lock')}<div><b>ECH</b><span>رمزنگاری SNI</span></div></div>
-              <label class="switch"><input type="checkbox" data-key="ech"><i></i></label>
-            </div>
-            <div class="switch-row">
-              <div class="switch-meta">${icon('bolt')}<div><b>فرگمنت TLS</b><span>ضد DPI — شادوساکس فرگمنت ندارد</span></div></div>
-              <label class="switch"><input type="checkbox" data-key="frag"><i></i></label>
-            </div>
-            <div class="switch-row">
-              <div class="switch-meta">${icon('wifi')}<div><b>EPI</b><span>IP پیش‌فرض کلاینت</span></div></div>
-              <label class="switch"><input type="checkbox" data-key="epi"><i></i></label>
-            </div>
-            <div class="switch-row">
-              <div class="switch-meta">${icon('branch')}<div><b>زنجیره خانگی (JK)</b><span>اتصال زنجیره‌ای</span></div></div>
-              <label class="switch"><input type="checkbox" data-key="jk"><i></i></label>
-            </div>
-            <div class="switch-row">
-              <div class="switch-meta">${icon('wifi')}<div><b>IPv4</b><span>آی‌پی‌های ثابت نسخه ۴</span></div></div>
-              <label class="switch"><input type="checkbox" data-key="ipv4"><i></i></label>
-            </div>
-            <div class="switch-row">
-              <div class="switch-meta">${icon('wifi')}<div><b>IPv6</b><span>آی‌پی‌های ثابت نسخه ۶</span></div></div>
-              <label class="switch"><input type="checkbox" data-key="ipv6"><i></i></label>
-            </div>
-            <div class="switch-row">
-              <div class="switch-meta">${icon('globe')}<div><b>دامنه‌های مستقیم (EPD)</b><span>نودهای دامنه CNAME</span></div></div>
-              <label class="switch"><input type="checkbox" data-key="epd"><i></i></label>
-            </div>
-            <div class="switch-row">
-              <div class="switch-meta">${icon('globe')}<div><b>لیست آی‌پی خارجی (EGI)</b><span>واکشی از آدرس yxURL</span></div></div>
-              <label class="switch"><input type="checkbox" data-key="egi"><i></i></label>
-            </div>
-          </div>
-
-          <div class="group-title" style="margin-top: 22px;">${icon('sliders')} <span data-i18n="settings.network">شبکه و ترنسپورت</span></div>
-          <div class="form-grid">
-            <div class="field">
-              <label>رمز تروجان (tp)</label>
-              <input type="text" data-key="tp" placeholder="اختیاری">
-            </div>
-            <div class="field">
-              <label>متد Shadowsocks</label>
-              <select data-key="ssmethod">
-                ${ssmethods.map(m => `<option value="${m}">${m} (سازگار با هسته)</option>`).join('')}
-              </select>
-              <span class="hint">هسته این ورکر فقط هدر متنی SS را می‌خواند؛ متدهای AEAD باعث بی‌پاسخ شدن نود می‌شوند.</span>
-            </div>
-            <div class="field" data-show-when="ech">
-              <label>دامنه ECH</label>
-              <select data-key="customECHDomain">
-                ${ECH_DOMAINS.map(d => `<option value="${d}">${d}</option>`).join('')}
-              </select>
-            </div>
-            <div class="field" data-show-when="frag">
-              <label>پریست فرگمنت</label>
-              <select data-key="fragmentPreset">
-                ${Object.entries(FRAGMENT_PRESETS).map(([id, p]) => `<option value="${id}">${p.name}</option>`).join('')}
-              </select>
-            </div>
-            <div class="field">
-              <label>فینگرپرینت TLS</label>
-              <select data-key="fp">
-                ${FINGERPRINT_PRESETS.map(p => `<option value="${p.id}">${p.name}</option>`).join('')}
-              </select>
-            </div>
-            <div class="field">
-              <label>الگوی مسیر (patt)</label>
-              <select data-key="patt">
-                ${PATH_PATTERNS.map(p => `<option value="${p.id}">${p.name}</option>`).join('')}
-              </select>
-            </div>
-            <div class="field">
-              <label>چرخش آی‌پی</label>
-              <select data-key="ipRotation">
-                ${ipRotationOptions.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}
-              </select>
-            </div>
-            <div class="field">
-              <label>ProxyIP سفارشی (p)</label>
-              <input type="text" data-key="p" placeholder="domain:port">
-            </div>
-            <div class="field">
-              <label>تعداد نود چندلوکیشن</label>
-              <input type="number" data-key="locationNodeCount" min="1" max="40" step="1" placeholder="8">
-            </div>
-            <div class="field">
-              <label>پروکسی خروجی (s)</label>
-              <input type="text" data-key="s" placeholder="socks5://user:pass@host:port">
-              <span class="hint">ترافیک خروجی از این پروکسی عبور می‌کند (همان مقدار در مسیر نود هم گذاشته می‌شود).</span>
-            </div>
-            <div class="field" data-show-when="frag">
-              <label>طول فرگمنت</label>
-              <input type="text" data-key="fragmentLength" placeholder="100-200">
-            </div>
-            <div class="field" data-show-when="frag">
-              <label>فاصله فرگمنت</label>
-              <input type="text" data-key="fragmentInterval" placeholder="10-20">
-            </div>
-            <div class="field" data-show-when="frag">
-              <label>نوع پکت فرگمنت</label>
-              <input type="text" data-key="fragmentPackets" placeholder="tlshello">
-            </div>
-            <div class="field">
-              <label data-i18n="field.dns">DNS سفارشی (DoH)</label>
-              <select id="dnsPreset">
-                ${DNS_PRESETS.map(d => `<option value="${d.value}">${d.name}</option>`).join('')}
-                <option value="custom">سفارشی (مقدار دلخواه)</option>
-              </select>
-              <input type="text" data-key="customDNS" placeholder="https://223.5.5.5/dns-query" style="margin-top:8px;">
-              <span class="hint" data-i18n="field.dnsHint">یک DNS از لیست انتخاب کنید یا مقدار دلخواه DoH بنویسید.</span>
-            </div>
-            <div class="field">
-              <label data-i18n="field.ports">پورت‌های نود (ports)</label>
-              <input type="text" data-key="ports" placeholder="443,2053,2087,8443">
-              <span class="hint">لیست پورت‌ها با کاما — مجاز: ${CF_PORT_CHOICES.map(p => p.port).join(' , ')}. پورت HTTP فقط وقتی ECH خاموش است استفاده می‌شود.</span>
-            </div>
-          </div>
-
-          <div class="group-title" style="margin-top: 22px;">${icon('shield')} <span data-i18n="settings.panel">پنل و امنیت</span></div>
-          <div class="form-grid">
-            <div class="field">
-              <label data-i18n="field.adminPath">مسیر مدیریت (رندوم)</label>
-              <div class="toolbar">
-                <input type="text" id="adminPathView" class="mono" readonly style="flex:1;">
-                <button class="btn sm" type="button" data-act="copy-admin-path">${icon('copy')} کپی</button>
-                <button class="btn sm ghost" type="button" data-act="rotate-path">${icon('refresh')} <span data-i18n="btn.rotatePath">مسیر جدید</span></button>
-              </div>
-              <span class="hint">آدرس ثابت پنل همیشه <b>/admin</b> است؛ مسیر رندوم بالا (یا مسیر سفارشی d) هم به‌عنوان آدرس جایگزین کار می‌کند.</span>
-            </div>
-            <div class="field">
-              <label data-i18n="field.customPath">مسیر سفارشی پنل (d)</label>
-              <input type="text" data-key="d" placeholder="admin">
-              <span class="hint">در صورت خالی بودن، همان مسیر رندوم بالا استفاده می‌شود.</span>
-            </div>
-            <div class="field">
-              <label>صفحه استتار (homepage)</label>
-              <input type="text" data-key="homepage" placeholder="https://example.com">
-            </div>
-            <div class="field">
-              <label>نودهای ترجیحی (yx)</label>
-              <input type="text" data-key="yx" placeholder="1.2.3.4:443#Node, 5.6.7.8:443#Node2">
-            </div>
-            <div class="field">
-              <label data-i18n="field.nodeCount">تعداد نود هر کاربر</label>
-              <input type="number" data-key="subNodeCount" min="1" max="200" step="1">
-            </div>
-          </div>
-
-          <div id="configWarnings" class="warn-box" style="display:none;"></div>
-
-          <div class="toolbar" style="margin-top: 18px;">
-            <button class="btn primary" type="button" data-act="save-config">${icon('check')} <span data-i18n="btn.save">ذخیره تنظیمات</span></button>
-            <button class="btn ghost" type="button" data-act="reset-config">${icon('refresh')} <span data-i18n="btn.reset">بازنشانی پیش‌فرض</span></button>
-            <div class="spacer"></div>
-            <button class="btn" type="button" data-act="open-password">${icon('key')} <span data-i18n="btn.password">تغییر رمز مدیر</span></button>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="panel" data-panel="scanner">
-      <div class="window">
-        <div class="window-head">
-          <span class="dots"><i></i><i></i><i></i></span>
-          <div class="window-title">${icon('radar')} <span data-i18n="panel.scanner">اسکنر زنده</span> <span class="window-sub" data-i18n="panel.scannerSub">دریافت زنده پروکسی و آی‌پی ثابت (IPv4/IPv6) به تفکیک کشور</span></div>
-        </div>
-        <div class="window-body">
-          <div class="scan-controls">
-            <div class="field">
-              <label data-i18n="scanner.country">کشور</label>
-              <select id="scanCountry">${countryOptions()}</select>
-            </div>
-            <div class="field">
-              <label data-i18n="scanner.kind">نوع</label>
-              <select id="scanKind">
-                <option value="proxy" selected>پروکسی زنده (SOCKS5 / HTTP)</option>
-                <option value="ip">آی‌پی ثابت CF</option>
-              </select>
-            </div>
-            <div class="field" id="scanFamilyWrap">
-              <label data-i18n="scanner.family">خانواده آی‌پی</label>
-              <select id="scanFamily">
-                <option value="any" selected>IPv4 + IPv6</option>
-                <option value="ipv4">فقط IPv4</option>
-                <option value="ipv6">فقط IPv6</option>
-              </select>
-            </div>
-            <div class="field">
-              <label data-i18n="scanner.count">تعداد</label>
-              <select id="scanLimit">
-                <option value="5">۵ مورد</option>
-                <option value="10" selected>۱۰ مورد</option>
-                <option value="15">۱۵ مورد</option>
-                <option value="20">۲۰ مورد</option>
-              </select>
-            </div>
-            <button class="btn primary" type="button" id="btnScan" data-act="run-scan">${icon('bolt')} <span data-i18n="btn.scan">دریافت و تست</span></button>
-          </div>
-          <div class="scan-status" id="scanHint">آی‌پی‌های سالم با دکمهٔ «افزودن به yx» و پروکسی‌ها با «اتصال به s» در تنظیمات ذخیره می‌شوند.</div>
-          <div class="toolbar" style="margin-top: 12px;">
-            <button class="btn sm" type="button" data-act="add-cf-ips">${icon('plus')} <span data-i18n="scanner.addCfIps">افزودن IPهای پیش‌فرض CFnew به yx</span></button>
-            <button class="btn sm" type="button" data-act="add-cf-domains">${icon('globe')} <span data-i18n="scanner.addCfDomains">افزودن دامنه‌های پیش‌فرض CFnew به yx</span></button>
-          </div>
-          <div class="scan-status" id="scanStatus"></div>
-          <div class="table-wrap">
-            <table class="scan">
-              <thead>
-                <tr>
-                  <th data-i18n="scan.colCountry">کشور</th>
-                  <th data-i18n="scan.colAddr">آدرس / پورت</th>
-                  <th data-i18n="scan.colType">نوع / پروتکل</th>
-                  <th data-i18n="scan.colPing">پینگ</th>
-                  <th data-i18n="scan.colStatus">وضعیت</th>
-                  <th data-i18n="scan.colAction">عملیات</th>
-                </tr>
-              </thead>
-              <tbody id="scanBody">
-                <tr><td colspan="6" class="empty">برای شروع، دریافت و تست را بزنید.</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="panel" data-panel="locations">
-      <div class="window">
-        <div class="window-head">
-          <span class="dots"><i></i><i></i><i></i></span>
-          <div class="window-title">${icon('globe')} <span data-i18n="panel.locations">چندلوکیشن</span> <span class="window-sub" data-i18n="panel.locationsSub">سابلینک به تفکیک کشور</span></div>
-          <div class="spacer"></div>
-          <button class="btn sm ghost" type="button" data-act="copy-master">${icon('copy')} همه لوکیشن‌ها</button>
-        </div>
-        <div class="window-body">
-          <div class="loc-grid" id="locGrid"></div>
-        </div>
-      </div>
-    </section>
-  </main>
-
-  <div class="dock-wrap">
-    <nav class="dock">
-      <button class="dock-item is-active" type="button" data-tab="dashboard">${icon('dashboard')}<span data-i18n="nav.dashboard">داشبورد</span></button>
-      <button class="dock-item" type="button" data-tab="users">${icon('users')}<span data-i18n="nav.users">کاربران</span></button>
-      <button class="dock-item" type="button" data-tab="settings">${icon('settings')}<span data-i18n="nav.settings">تنظیمات</span></button>
-      <button class="dock-item" type="button" data-tab="scanner">${icon('radar')}<span data-i18n="nav.scanner">اسکنر</span></button>
-      <button class="dock-item" type="button" data-tab="locations">${icon('globe')}<span data-i18n="nav.locations">چندلوکیشن</span></button>
-    </nav>
+    </aside>
+    <main class="main">
+      <div class="view" id="view" aria-live="polite"></div>
+    </main>
   </div>
+</div>
 
-  <div class="modal" id="createModal">
-    <div class="modal-card">
-      <div class="modal-head"><b>${icon('plus')} ایجاد کاربر جدید</b><button class="icon-btn" type="button" data-act="close-modal" data-modal="createModal">${icon('close')}</button></div>
-      <div class="modal-body">
-        <div class="field"><label>نام کاربری</label><input type="text" id="newUsername" placeholder="مثلاً ali"></div>
-        <div class="field"><label>پریست</label><select id="newPreset">${presetOptions}</select></div>
-        <div class="field"><label>حجم مجاز (GB) — صفر برای نامحدود</label><input type="number" id="newLimit" min="0" step="1" value="0"></div>
-        <div class="field"><label>مدت اعتبار (روز) — صفر برای بدون انقضا</label><input type="number" id="newDays" min="0" step="1" value="0"></div>
-        <div class="field"><label>تعداد نود در سابلینک</label><input type="number" id="newNodes" min="1" max="200" step="1" value="${Number(config.subNodeCount) || 50}"></div>
-        <details class="adv-box">
-          <summary data-i18n="modal.advanced">تنظیمات منحصر به فرد این کاربر</summary>
-          <div class="form-grid" style="margin-top:10px;">
-            <div class="field"><label>VLESS</label><select id="cfgEv"><option value="yes">روشن</option><option value="no">خاموش</option></select></div>
-            <div class="field"><label>Trojan</label><select id="cfgEt"><option value="yes">روشن</option><option value="no">خاموش</option></select></div>
-            <div class="field"><label>Shadowsocks</label><select id="cfgEs"><option value="yes">روشن</option><option value="no">خاموش</option></select></div>
-            <div class="field"><label>xHTTP</label><select id="cfgEx"><option value="yes">روشن</option><option value="no">خاموش</option></select></div>
-            <div class="field"><label>ECH</label><select id="cfgEch"><option value="yes">روشن</option><option value="no">خاموش</option></select></div>
-            <div class="field"><label>فرگمنت</label><select id="cfgFrag"><option value="yes">روشن</option><option value="no">خاموش</option></select></div>
-            <div class="field"><label data-i18n="field.dns">DNS سفارشی</label>
-              <select id="cfgDNS">${DNS_PRESETS.map(d => `<option value="${d.value}">${d.name}</option>`).join('')}</select>
-            </div>
-            <div class="field"><label data-i18n="field.echDomain">دامنه ECH</label>
-              <select id="cfgEchDomain">${ECH_DOMAINS.map(d => `<option value="${d}">${d}</option>`).join('')}</select>
-            </div>
-            <div class="field"><label data-i18n="field.ports">پورت‌های نود</label><input type="text" id="cfgPorts" value="${config.ports || '443,2053,2087,8443'}"></div>
-            <div class="field"><label data-i18n="field.fp">فینگرپرینت TLS</label>
-              <select id="cfgFp">${FINGERPRINT_PRESETS.map(p => `<option value="${p.id}">${p.name}</option>`).join('')}</select>
-            </div>
-            <div class="field"><label data-i18n="field.patt">الگوی مسیر</label>
-              <select id="cfgPatt">${PATH_PATTERNS.map(p => `<option value="${p.id}">${p.name}</option>`).join('')}</select>
-            </div>
-            <div class="field"><label data-i18n="field.yx">نودهای ترجیحی (yx)</label><input type="text" id="cfgYx" placeholder="1.2.3.4:443#Node"></div>
-            <div class="field"><label data-i18n="field.outProxy">پروکسی خروجی (s)</label><input type="text" id="cfgS" placeholder="socks5://host:1080"></div>
-          </div>
-        </details>
-      </div>
-      <div class="modal-foot">
-        <button class="btn primary" type="button" data-act="create-user">${icon('check')} <span data-i18n="modal.createBtn">ساخت کاربر</span></button>
-        <button class="btn ghost" type="button" data-act="close-modal" data-modal="createModal"><span data-i18n="modal.cancel">انصراف</span></button>
-      </div>
-    </div>
+<div class="toasts" id="toasts"></div>
+<div class="modal-backdrop" id="modal" hidden>
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-head"><h3 id="modalTitle"></h3><button class="icon-btn" type="button" data-act="modal-close" aria-label="Close"><svg class="ico"><use href="#i-x"/></svg></button></div>
+    <form id="modalForm"><div class="modal-body" id="modalBody"></div><div class="modal-foot" id="modalFoot"></div></form>
   </div>
-
-  <div class="modal" id="passwordModal">
-    <div class="modal-card">
-      <div class="modal-head"><b>${icon('key')} تغییر رمز مدیر</b><button class="icon-btn" type="button" data-act="close-modal" data-modal="passwordModal">${icon('close')}</button></div>
-      <div class="modal-body">
-        <div class="field"><label>رمز فعلی</label><input type="password" id="pwdOld" autocomplete="current-password"></div>
-        <div class="field"><label>رمز جدید</label><input type="password" id="pwdNew" autocomplete="new-password"></div>
-        <div class="field"><label>تکرار رمز جدید</label><input type="password" id="pwdNew2" autocomplete="new-password"></div>
-      </div>
-      <div class="modal-foot">
-        <button class="btn primary" type="button" data-act="save-password">${icon('check')} ذخیره رمز</button>
-        <button class="btn ghost" type="button" data-act="close-modal" data-modal="passwordModal">انصراف</button>
-      </div>
-    </div>
-  </div>
-
-  <div class="toast"><div class="toast-body" id="toastBody"></div></div>
+</div>
 
 <script>
-  var INITIAL_DATA = ${safeInitialJson};
-  var ICO = ${clientIcons};
-  var MAX_USERS = INITIAL_DATA.maxUsersLimit || 3;
-  var ADMIN_PATH = String(INITIAL_DATA.adminPath || '').replace(/^\\/+|\\/+$/g, '');
-  var API_BASE = ADMIN_PATH ? '/' + ADMIN_PATH : '';
-  var state = {
-    config: INITIAL_DATA.config || {},
-    users: INITIAL_DATA.users || [],
-    diagnostics: INITIAL_DATA.diagnostics || {}
+var I18N = ${JSON.stringify(T).replace(/</g, '\\u003c')};
+var BOOT = ${JSON.stringify(boot).replace(/</g, '\\u003c')};
+</script>
+<script>
+${ADMIN_JS}
+</script>
+</body>
+</html>`;
+}
+
+const ADMIN_CSS = `
+:root{
+  --r:14px; --r-sm:10px;
+  --font: "Vazirmatn", "Segoe UI", system-ui, -apple-system, "Noto Sans Arabic", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --ok:#22c55e; --warn:#f59e0b; --danger:#ef4444; --info:#38bdf8;
+}
+html[data-accent="emerald"]{--accent:#34d399;--accent-2:#22d3ee;--accent-ink:#052e22;--accent-soft:rgba(52,211,153,.14)}
+html[data-accent="cyan"]{--accent:#22d3ee;--accent-2:#6366f1;--accent-ink:#042a33;--accent-soft:rgba(34,211,238,.14)}
+html[data-accent="violet"]{--accent:#a78bfa;--accent-2:#22d3ee;--accent-ink:#1e1035;--accent-soft:rgba(167,139,250,.16)}
+html[data-accent="amber"]{--accent:#fbbf24;--accent-2:#34d399;--accent-ink:#332100;--accent-soft:rgba(251,191,36,.16)}
+html[data-theme="dark"]{
+  --bg:#050b08; --bg-2:#071410;
+  --surface:#0b1712; --surface-2:#0f2018; --surface-3:#12261d;
+  --border:rgba(148,163,184,.16); --border-strong:rgba(148,163,184,.3);
+  --text:#e7f4ec; --muted:#8ca79a; --faint:#5c7568;
+  --shadow:0 24px 60px rgba(0,0,0,.5);
+  --nav-active:rgba(255,255,255,.06);
+  --input:#08130e;
+  color-scheme: dark;
+}
+html[data-theme="light"]{
+  --bg:#eef4f0; --bg-2:#f7faf8;
+  --surface:#ffffff; --surface-2:#f5f9f6; --surface-3:#eef5f0;
+  --border:rgba(15,42,30,.12); --border-strong:rgba(15,42,30,.22);
+  --text:#0d2118; --muted:#5c7268; --faint:#8b9d93;
+  --shadow:0 20px 50px rgba(15,42,30,.12);
+  --nav-active:rgba(15,42,30,.05);
+  --input:#f9fcfa;
+  color-scheme: light;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;font-family:var(--font);background:var(--bg);color:var(--text);
+  background-image:
+    radial-gradient(1200px 600px at 10% -10%, var(--accent-soft), transparent 60%),
+    radial-gradient(900px 500px at 110% 10%, rgba(34,211,238,.08), transparent 60%);
+  background-attachment:fixed;
+}
+html[data-motion="no"] *{animation:none!important;transition:none!important}
+@media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
+.sprite{position:absolute;width:0;height:0;overflow:hidden}
+.ico{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+svg.sprite symbol path,svg.sprite symbol rect,svg.sprite symbol circle{stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.window{
+  max-width:1680px;margin:18px auto;border:1px solid var(--border-strong);border-radius:20px;
+  background:linear-gradient(180deg,var(--surface),var(--bg-2));box-shadow:var(--shadow);overflow:hidden;
+  min-height:calc(100vh - 36px);display:flex;flex-direction:column;
+}
+.titlebar{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:10px 16px;border-bottom:1px solid var(--border);
+  background:linear-gradient(90deg,var(--accent-soft),transparent 45%);
+}
+.tb-left,.tb-right{display:flex;align-items:center;gap:10px}
+.dots{display:inline-flex;gap:6px;margin-inline-end:6px}
+.dots i{width:10px;height:10px;border-radius:50%;display:block;background:var(--border-strong)}
+.dots i:nth-child(1){background:#ff6464}.dots i:nth-child(2){background:#f5c451}.dots i:nth-child(3){background:#4ade80}
+.brand{display:flex;align-items:center;gap:10px}
+.logo{width:34px;height:34px;flex:none}
+.brand-text{display:flex;flex-direction:column;line-height:1.15}
+.brand-text strong{font-size:.95rem;letter-spacing:.2px}
+.brand-text span{font-size:.68rem;color:var(--muted)}
+.chip{
+  border:1px solid var(--border);background:var(--surface-2);color:var(--muted);
+  border-radius:999px;padding:6px 12px;font:inherit;font-size:.74rem;cursor:pointer;
+}
+.chip:hover{color:var(--text);border-color:var(--accent)}
+.icon-btn{
+  width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;
+  border:1px solid var(--border);border-radius:10px;background:var(--surface-2);color:var(--muted);cursor:pointer;
+}
+.icon-btn:hover{color:var(--accent);border-color:var(--accent)}
+.menu-btn{display:none}
+.shell{display:flex;flex:1;min-height:0}
+.sidebar{
+  width:232px;flex:none;border-inline-end:1px solid var(--border);padding:16px 12px;
+  display:flex;flex-direction:column;gap:14px;background:var(--surface);
+}
+.nav{display:flex;flex-direction:column;gap:2px;overflow:auto}
+.nav-group{font-size:.66rem;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);padding:10px 12px 4px}
+.nav button{
+  display:flex;align-items:center;gap:10px;width:100%;border:0;background:transparent;color:var(--muted);
+  padding:9px 11px;border-radius:10px;font:inherit;font-size:.82rem;cursor:pointer;text-align:start;
+  border-inline-start:2px solid transparent;
+}
+.nav button:hover{background:var(--nav-active);color:var(--text)}
+.nav button.active{background:var(--nav-active);color:var(--text);border-inline-start-color:var(--accent)}
+.nav button.active .ico{color:var(--accent)}
+.side-foot{margin-top:auto;padding:10px 8px 4px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:8px}
+.side-badge{font-size:.7rem;padding:7px 10px;border-radius:9px;border:1px dashed var(--border-strong);color:var(--muted);line-height:1.6}
+.side-badge b{color:var(--accent)}
+.side-note{font-size:.66rem;color:var(--faint)}
+.main{flex:1;min-width:0;overflow:auto;padding:22px 24px 40px}
+.view{display:flex;flex-direction:column;gap:20px}
+.page-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.page-head h1{margin:0 0 4px;font-size:1.35rem;letter-spacing:-.01em}
+.page-head p{margin:0;color:var(--muted);font-size:.83rem;max-width:70ch;line-height:1.7}
+.page-actions{display:flex;gap:8px;flex-wrap:wrap}
+.grid{display:grid;gap:14px}
+.grid.stats{grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}
+.grid.two{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.card{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;
+  display:flex;flex-direction:column;gap:12px;min-width:0;
+}
+.card h2,.card h3{margin:0;font-size:.92rem;letter-spacing:.01em}
+.card-sub{font-size:.74rem;color:var(--muted);line-height:1.6}
+.stat{position:relative;overflow:hidden}
+.stat .k{font-size:.72rem;color:var(--muted);letter-spacing:.03em}
+.stat .v{font-size:1.65rem;font-weight:800;letter-spacing:-.02em;line-height:1.1}
+.stat .v small{font-size:.85rem;font-weight:600;color:var(--muted)}
+.stat .hint{font-size:.7rem;color:var(--faint)}
+.stat::after{content:"";position:absolute;inset-inline-end:-30px;top:-30px;width:110px;height:110px;border-radius:50%;background:var(--accent-soft)}
+.stat > *{position:relative;z-index:1}
+.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.btn{
+  display:inline-flex;align-items:center;gap:7px;border:1px solid var(--border-strong);background:var(--surface-2);
+  color:var(--text);border-radius:10px;padding:8px 13px;font:inherit;font-size:.79rem;cursor:pointer;line-height:1.2;
+}
+.btn:hover{border-color:var(--accent);color:var(--accent)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:700}
+.btn.primary:hover{filter:brightness(1.05);color:var(--accent-ink)}
+.btn.danger{border-color:rgba(239,68,68,.5);color:#f87171}
+.btn.ghost{background:transparent}
+.btn.sm{padding:5px 9px;font-size:.72rem;border-radius:8px}
+.btn:disabled{opacity:.55;cursor:not-allowed}
+.field{display:flex;flex-direction:column;gap:6px;min-width:0}
+.field label{font-size:.76rem;color:var(--muted);font-weight:600}
+.field .help{font-size:.68rem;color:var(--faint);line-height:1.55}
+input,select,textarea{
+  width:100%;background:var(--input);border:1px solid var(--border-strong);color:var(--text);
+  border-radius:10px;padding:9px 11px;font:inherit;font-size:.82rem;outline:none;
+}
+input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+textarea{min-height:76px;resize:vertical}
+label.check{display:flex;align-items:center;gap:8px;font-size:.79rem;color:var(--text);font-weight:500}
+label.check input{width:auto;accent-color:var(--accent)}
+.form-grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
+.form-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.table-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:var(--r);background:var(--surface)}
+table{width:100%;border-collapse:collapse;font-size:.78rem;min-width:620px}
+th,td{padding:10px 12px;text-align:start;border-bottom:1px solid var(--border);vertical-align:middle}
+th{font-size:.68rem;letter-spacing:.04em;text-transform:uppercase;color:var(--faint);background:var(--surface-2);white-space:nowrap}
+tbody tr:hover{background:var(--nav-active)}
+tbody tr:last-child td{border-bottom:0}
+.mono{font-family:var(--mono);font-size:.72rem;direction:ltr;unicode-bidi:embed}
+.muted{color:var(--muted)}.faint{color:var(--faint)}
+.badge{
+  display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:3px 9px;
+  font-size:.68rem;border:1px solid var(--border-strong);color:var(--muted);white-space:nowrap;
+}
+.badge.ok{border-color:rgba(34,197,94,.4);color:#4ade80;background:rgba(34,197,94,.08)}
+.badge.warn{border-color:rgba(245,158,11,.4);color:#fbbf24;background:rgba(245,158,11,.08)}
+.badge.err{border-color:rgba(239,68,68,.4);color:#f87171;background:rgba(239,68,68,.08)}
+.badge.info{border-color:rgba(56,189,248,.4);color:#38bdf8;background:rgba(56,189,248,.08)}
+.badge.accent{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.btn-row{display:flex;gap:6px;flex-wrap:wrap}
+.empty{
+  display:flex;flex-direction:column;align-items:center;gap:8px;padding:34px 16px;text-align:center;
+  color:var(--muted);border:1px dashed var(--border-strong);border-radius:var(--r);font-size:.82rem;
+}
+.empty .ico{width:28px;height:28px;color:var(--faint)}
+.alert{
+  border:1px solid var(--border-strong);border-radius:var(--r-sm);padding:11px 13px;font-size:.78rem;
+  line-height:1.7;display:flex;gap:9px;align-items:flex-start;background:var(--surface-2);
+}
+.alert.err{border-color:rgba(239,68,68,.45);background:rgba(239,68,68,.07)}
+.alert.warn{border-color:rgba(245,158,11,.45);background:rgba(245,158,11,.07)}
+.alert.ok{border-color:rgba(34,197,94,.4);background:rgba(34,197,94,.07)}
+.alert.info{border-color:rgba(56,189,248,.35);background:rgba(56,189,248,.06)}
+.alert b{display:block;margin-bottom:2px}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--border);padding-bottom:10px}
+.tabs button{
+  border:1px solid transparent;background:transparent;color:var(--muted);border-radius:9px;
+  padding:6px 11px;font:inherit;font-size:.78rem;cursor:pointer;
+}
+.tabs button.active{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+.bars{display:flex;align-items:flex-end;gap:6px;height:130px;padding-top:8px}
+.bars .bar{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:4px;min-width:10px}
+.bars .bar i{display:block;width:100%;max-width:30px;background:linear-gradient(180deg,var(--accent),var(--accent-2));border-radius:4px 4px 0 0;min-height:2px;opacity:.85}
+.bars .bar span{font-size:.6rem;color:var(--faint);writing-mode:vertical-rl}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:.72rem;color:var(--muted)}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:3px;background:var(--accent);margin-inline-end:5px}
+.list{display:flex;flex-direction:column;gap:8px}
+.list-item{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--border);font-size:.78rem}
+.list-item:last-child{border-bottom:0}
+.list-item span{color:var(--muted)}
+.modal-backdrop{position:fixed;inset:0;background:rgba(2,8,5,.68);backdrop-filter:blur(6px);z-index:60;display:flex;align-items:center;justify-content:center;padding:18px}
+.modal{width:min(620px,100%);max-height:90vh;overflow:auto;background:var(--surface);border:1px solid var(--border-strong);border-radius:16px;box-shadow:var(--shadow)}
+.modal-head{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border)}
+.modal-head h3{margin:0;font-size:.95rem}
+.modal-body{padding:18px;display:flex;flex-direction:column;gap:13px}
+.modal-foot{display:flex;justify-content:flex-end;gap:8px;padding:14px 18px;border-top:1px solid var(--border);position:sticky;bottom:0;background:var(--surface)}
+.toasts{position:fixed;inset-inline-end:18px;bottom:18px;display:flex;flex-direction:column;gap:8px;z-index:80}
+.toast{
+  padding:10px 14px;border-radius:10px;font-size:.78rem;border:1px solid var(--border-strong);
+  background:var(--surface);box-shadow:var(--shadow);animation:pop .18s ease;max-width:340px;
+}
+.toast.ok{border-color:rgba(34,197,94,.5)}
+.toast.err{border-color:rgba(239,68,68,.55)}
+@keyframes pop{from{transform:translateY(6px);opacity:0}to{transform:none;opacity:1}}
+.spinner{width:16px;height:16px;border:2px solid var(--border-strong);border-top-color:var(--accent);border-radius:50%;display:inline-block;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.page-loading{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:.82rem;padding:40px 0}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:.78rem}
+.kv dt{color:var(--muted)}
+.kv dd{margin:0;text-align:end}
+.code{font-family:var(--mono);font-size:.72rem;background:var(--surface-3);border:1px solid var(--border);border-radius:8px;padding:8px 10px;direction:ltr;unicode-bidi:embed;overflow-wrap:anywhere}
+.section-note{font-size:.74rem;color:var(--faint);line-height:1.7}
+.switch{display:inline-flex;align-items:center;gap:8px}
+.switch input{width:auto;accent-color:var(--accent)}
+@media(max-width:960px){
+  .window{margin:0;border-radius:0;border:0;min-height:100vh}
+  .menu-btn{display:inline-flex}
+  .brand-text span{display:none}
+  .sidebar{
+    position:fixed;inset-block:0;inset-inline-start:0;z-index:50;width:250px;transform:translateX(-105%);
+    transition:transform .2s ease;box-shadow:var(--shadow);padding-top:22px;
+  }
+  html[dir="rtl"] .sidebar{transform:translateX(105%)}
+  .sidebar.open{transform:none!important}
+  .main{padding:16px 14px 48px}
+  .titlebar{padding:9px 12px}
+  .grid.stats{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+  .stat .v{font-size:1.3rem}
+  .page-head h1{font-size:1.15rem}
+}
+@media(max-width:520px){
+  .chip{padding:5px 9px}
+  .brand-text strong{font-size:.82rem}
+  .card{padding:13px}
+  .grid.stats{grid-template-columns:1fr 1fr}
+}
+`;
+
+const ADMIN_JS = `
+(function(){
+  'use strict';
+  var S = {
+    lang: localStorage.getItem('mili.lang') === 'en' ? 'en' : (localStorage.getItem('mili.lang') === 'fa' ? 'fa' : BOOT.lang),
+    theme: localStorage.getItem('mili.theme') || 'system',
+    page: 'dashboard',
+    overview: null, users: [], endpoints: [], subscriptions: null, settings: null,
+    audit: null, automation: null, cf: null, capabilities: null, dns: null,
+    selectedUser: '', settingsTab: 'general', engineResult: null, scanResult: null, busy: false
   };
-  var scanResults = [];
+  var pages = [
+    { id:'dashboard', group:'main', icon:'dash' },
+    { id:'users', group:'main', icon:'users' },
+    { id:'endpoints', group:'main', icon:'nodes' },
+    { id:'engine', group:'control', icon:'engine' },
+    { id:'subscriptions', group:'control', icon:'sub' },
+    { id:'scanner', group:'control', icon:'scan' },
+    { id:'dns', group:'control', icon:'dns' },
+    { id:'monitoring', group:'control', icon:'monitor' },
+    { id:'security', group:'system', icon:'shield' },
+    { id:'settings', group:'system', icon:'settings' },
+    { id:'cloudflare', group:'system', icon:'cloud' },
+    { id:'capabilities', group:'system', icon:'matrix' }
+  ];
+  var GROUPS = { main:{fa:'مرکز کنترل',en:'Control center'}, control:{fa:'شبکه',en:'Network'}, system:{fa:'سیستم',en:'System'} };
 
-  function $(id) { return document.getElementById(id); }
-  function origin() { return window.location.origin; }
-  function userKey(u) { return (u && (u.uuid || u.id)) || ''; }
-
-  function showToast(text, kind) {
-    var t = $('toastBody');
-    t.textContent = text;
-    t.className = 'toast-body show ' + (kind || '');
-    clearTimeout(t._timer);
-    t._timer = setTimeout(function() { t.className = 'toast-body ' + (kind || ''); }, 2800);
+  function t(key){ var d = I18N[S.lang] || I18N.en; return d[key] || key; }
+  function esc(v){ return String(v == null ? '' : v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+  function csv(v){ return Array.isArray(v) ? v.join(',') : String(v == null ? '' : v); }
+  function bytes(n){
+    n = Number(n) || 0;
+    if (!n) return '0 B';
+    var u = ['B','KB','MB','GB','TB'], i = Math.min(u.length-1, Math.floor(Math.log(n)/Math.log(1024)));
+    var v = n / Math.pow(1024, i);
+    return (v >= 100 || i === 0 ? Math.round(v) : v.toFixed(2)) + ' ' + u[i];
+  }
+  function when(ts){
+    if (!ts) return '—';
+    try { return new Date(ts).toLocaleString(S.lang === 'fa' ? 'fa-IR' : 'en-GB'); } catch (e) { return new Date(ts).toISOString(); }
+  }
+  function icon(name){ return '<svg class="ico"><use href="#i-' + name + '"/></svg>'; }
+  function badge(text, kind){ return '<span class="badge ' + (kind || '') + '">' + esc(text) + '</span>'; }
+  function sel(obj, val){ return String(obj || '') === String(val) ? ' selected' : ''; }
+  function chk(val){ return val ? ' checked' : ''; }
+  function optLabel(label){
+    if (label == null) return '';
+    if (typeof label === 'string') return label;
+    return label[S.lang] || label.en || label.fa || '';
   }
 
-  function copyText(text, okMsg) {
-    var done = function() { showToast(okMsg || 'در حافظه کپی شد', 'ok'); };
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(done).catch(function() { legacyCopy(text, done); });
-    } else {
-      legacyCopy(text, done);
+  function applyChrome(){
+    var html = document.documentElement;
+    html.lang = S.lang;
+    html.dir = S.lang === 'fa' ? 'rtl' : 'ltr';
+    localStorage.setItem('mili.lang', S.lang);
+    var dark = S.theme === 'dark' || (S.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    html.dataset.theme = dark ? 'dark' : 'light';
+    localStorage.setItem('mili.theme', S.theme);
+    document.getElementById('langBtn').textContent = S.lang === 'fa' ? 'EN' : 'فا';
+    document.getElementById('themeLabel').textContent = t(S.theme);
+    document.getElementById('storageBadge').innerHTML = 'DB: <b>' + esc(BOOT.storage === 'd1' ? 'Cloudflare D1' : 'memory fallback') + '</b><br>' + esc(BOOT.version);
+    renderNav();
+  }
+
+  function renderNav(){
+    var nav = document.getElementById('nav');
+    var html = '';
+    var groups = ['main','control','system'];
+    groups.forEach(function(group){
+      html += '<div class="nav-group">' + esc(optLabel(GROUPS[group])) + '</div>';
+      pages.filter(function(p){ return p.group === group; }).forEach(function(p){
+        html += '<button type="button" data-nav="' + p.id + '" class="' + (S.page === p.id ? 'active' : '') + '">' +
+          icon(p.icon) + '<span>' + esc(t(p.id)) + '</span></button>';
+      });
+    });
+    nav.innerHTML = html;
+  }
+
+  function toast(message, kind){
+    var box = document.getElementById('toasts');
+    var el = document.createElement('div');
+    el.className = 'toast ' + (kind || 'ok');
+    el.textContent = message;
+    box.appendChild(el);
+    setTimeout(function(){ el.remove(); }, 4200);
+  }
+
+  function api(path, options){
+    options = options || {};
+    var init = { method: options.method || 'GET', headers: {}, credentials: 'same-origin' };
+    if (options.body !== undefined) {
+      init.headers['Content-Type'] = 'application/json';
+      init.body = JSON.stringify(options.body);
     }
-  }
-  function legacyCopy(text, done) {
-    var ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed';
-    ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.select();
-    try { document.execCommand('copy'); done(); } catch (e) { showToast('کپی ناموفق بود', 'err'); }
-    document.body.removeChild(ta);
-  }
-
-  function api(path, options) {
-    var opts = options || {};
-    opts.headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
-    return fetch(API_BASE + path, opts).then(function(res) {
-      return res.json().catch(function() { return { success: false, message: 'پاسخ نامعتبر از سرور' }; })
-        .then(function(data) { data._status = res.status; return data; });
+    return fetch('/api/v1' + path, init).then(function(res){
+      if (res.status === 401) {
+        toast(t('loginRequired'), 'err');
+        setTimeout(function(){ location.reload(); }, 900);
+        throw new Error(t('loginRequired'));
+      }
+      return res.json().catch(function(){ return { ok:false, error:{ message:'Invalid server response' } }; }).then(function(data){
+        if (!res.ok || data.ok === false) {
+          var err = new Error((data.error && data.error.message) || data.message || ('HTTP ' + res.status));
+          err.data = data;
+          throw err;
+        }
+        return data;
+      });
     });
   }
 
-  function fmtGb(bytes) { return (Number(bytes || 0) / 1073741824).toFixed(2); }
-  function fmtDate(ms) {
-    if (!ms) return t('card.noExpiry');
-    try { return new Date(ms).toLocaleDateString('fa-IR'); } catch (e) { return '—'; }
+  function loading(){
+    document.getElementById('view').innerHTML = '<div class="page-loading"><span class="spinner"></span>' + esc(t('loading')) + '</div>';
   }
 
-  function activeProtocols() {
-    var c = state.config || {};
-    var list = [];
-    list.push('VLESS');
-    if (c.es === 'yes') list.push('SS');
-    if (c.et === 'yes') list.push('Trojan');
-    if (c.ex === 'yes') list.push('xHTTP');
-    if (c.ech === 'yes') list.push('ECH');
-    return list;
+  function pageHead(title, subtitle, actions){
+    return '<div class="page-head"><div><h1>' + esc(title) + '</h1><p>' + esc(subtitle || '') + '</p></div>' +
+      '<div class="page-actions">' + (actions || '') + '</div></div>';
   }
 
-  function showPanel(name) {
-    document.querySelectorAll('.panel').forEach(function(p) {
-      p.classList.toggle('is-active', p.getAttribute('data-panel') === name);
+  function statCard(label, value, hint){
+    return '<div class="card stat"><div class="k">' + esc(label) + '</div><div class="v">' + value + '</div>' +
+      (hint ? '<div class="hint">' + esc(hint) + '</div>' : '') + '</div>';
+  }
+
+  function emptyState(text){
+    return '<div class="empty">' + icon('matrix') + '<div>' + esc(text || t('noData')) + '</div></div>';
+  }
+
+  function bars(series){
+    var rows = (series || []).filter(function(x){ return Number(x.bytes) > 0; }).slice(-14);
+    if (!rows.length) return '<div class="empty">' + esc(t('noTraffic')) + '</div>';
+    var max = Math.max.apply(null, rows.map(function(x){ return Number(x.bytes) || 0; })) || 1;
+    var out = '<div class="bars">';
+    rows.forEach(function(row){
+      var h = Math.max(2, Math.round((Number(row.bytes) || 0) / max * 100));
+      out += '<div class="bar" title="' + esc(row.dayKey + ' · ' + bytes(row.bytes)) + '"><i style="height:' + h + '%"></i><span>' + esc(String(row.dayKey).slice(5)) + '</span></div>';
     });
-    document.querySelectorAll('.dock-item').forEach(function(b) {
-      b.classList.toggle('is-active', b.getAttribute('data-tab') === name);
-    });
-    if (history.replaceState) history.replaceState(null, '', '#' + name);
+    return out + '</div><div class="legend"><span><i></i>' + esc(t('traffic')) + '</span><span>' + esc(t('measuredTrafficNote')) + '</span></div>';
+  }
+
+  function userRow(u){
+    var protos = u.protocols || {};
+    var tags = ['vless','trojan','xhttp','shadowsocks'].filter(function(k){ return protos[k]; }).map(function(k){
+      return badge(k === 'shadowsocks' ? 'SS' : k.toUpperCase(), 'info');
+    }).join(' ');
+    var quota = Number(u.dataLimitGb) > 0 ? bytes(Number(u.dataLimitGb) * 1073741824) : t('unlimited');
+    var exp = Number(u.expireAt) > 0 ? when(u.expireAt) : t('never');
+    return '<tr><td><div style="font-weight:700">' + esc(u.username) + '</div><div class="mono faint">' + esc(u.id) + '</div></td>' +
+      '<td>' + (u.enabled ? badge(t('enabled'), 'ok') : badge(t('disabled'), 'err')) + '</td>' +
+      '<td class="mono">' + esc(bytes(u.usedBytes)) + '<div class="faint">' + esc(quota) + '</div></td>' +
+      '<td>' + esc(exp) + '</td><td>' + (tags || '<span class="faint">—</span>') + '</td>' +
+      '<td><div class="btn-row">' +
+        '<button class="btn sm" data-act="user-edit" data-id="' + esc(u.id) + '">' + esc(t('edit')) + '</button>' +
+        '<button class="btn sm" data-act="user-reset" data-id="' + esc(u.id) + '">reset</button>' +
+        '<button class="btn sm" data-act="sub-rotate" data-id="' + esc(u.id) + '">' + esc(t('rotate')) + '</button>' +
+        '<button class="btn sm" data-act="sub-toggle" data-id="' + esc(u.id) + '" data-revoked="' + (u.subscription && u.subscription.revoked ? '1' : '0') + '">' + esc(u.subscription && u.subscription.revoked ? t('enable') : t('revoke')) + '</button>' +
+        '<button class="btn sm danger" data-act="user-del" data-id="' + esc(u.id) + '">' + esc(t('delete')) + '</button>' +
+      '</div></td></tr>';
+  }
+
+  function pageDashboard(){
+    var o = S.overview || {};
+    var u = o.users || {}, ep = o.endpoints || {}, sub = o.subscriptions || {}, tr = o.traffic || {};
+    var st = o.storage || {};
+    var html = pageHead(t('dashboard'), (I18N[S.lang]||{}).appName + ' · ' + BOOT.version, '<button class="btn" data-act="refresh">' + icon('refresh') + esc(t('refresh')) + '</button>');
+    html += '<div class="grid stats">' +
+      statCard(t('totalUsers'), esc(u.active || 0) + ' <small>/ ' + esc(u.capacity || BOOT.maxUsers) + '</small>', t('capacity') + ': ' + esc(u.available || 0)) +
+      statCard(t('activeSubs'), esc(sub.active || 0), t('downloads') + ': ' + esc(sub.downloads || 0)) +
+      statCard(t('traffic'), esc(bytes(tr.usedBytes || 0)), (tr.source || '') + ' · ' + t('usageSource')) +
+      statCard(t('endpointsHealthy'), esc(ep.healthy || 0) + ' <small>/ ' + esc(ep.enabled || 0) + '</small>', t('failures') + ': ' + esc(ep.failing || 0)) +
+      statCard(t('configs'), esc((o.configurations||{}).valid || 0), t('valid')) +
+      statCard(t('storage'), '<span style="font-size:1.05rem">' + esc(st.d1Enabled ? 'D1' : 'Memory') + '</span>', st.binding || '') +
+      '</div>';
+
+    html += '<div class="grid two">' +
+      '<section class="card"><h2>' + esc(t('traffic')) + '</h2><div class="card-sub">' + esc(t('measuredTrafficNote')) + '</div>' + bars(tr.series) + '</section>' +
+      '<section class="card"><h2>' + esc(t('endpoints')) + '</h2>' +
+        '<div class="kv"><dt>' + esc(t('enabled')) + '</dt><dd>' + esc(ep.enabled || 0) + '</dd>' +
+        '<dt>' + esc(t('endpointsHealthy')) + '</dt><dd>' + esc(ep.healthy || 0) + '</dd>' +
+        '<dt>' + esc(t('failures')) + '</dt><dd>' + esc(ep.failing || 0) + '</dd>' +
+        '<dt>' + esc(t('lastCheck')) + '</dt><dd>' + esc(when(ep.lastCheckAt)) + '</dd></div>' +
+        (ep.failingList && ep.failingList.length ? '<div class="list">' + ep.failingList.map(function(x){
+          return '<div class="list-item"><strong>' + esc(x.name) + '</strong><span>' + esc(x.failures) + ' ×</span></div>';
+        }).join('') + '</div>' : '<div class="card-sub">' + esc(t('noData')) + '</div>') +
+      '</section>' +
+    '</div>';
+
+    html += '<div class="grid two">' +
+      '<section class="card"><h2>' + esc(t('dataPlane')) + '</h2><div class="card-sub">' + esc(((o.dataPlane||{}).note) || '') + '</div>' +
+        '<div class="kv"><dt>runtime</dt><dd>' + esc((o.dataPlane||{}).runtime || '—') + '</dd>' +
+        '<dt>' + esc(t('measuredTrafficNote').slice(0, 24)) + '</dt><dd>' + esc((o.dataPlane||{}).measuredTraffic ? 'yes' : 'no') + '</dd>' +
+        '<dt>REALITY</dt><dd>' + badge('unsupported', 'err') + '</dd>' +
+        '<dt>ECH</dt><dd>' + ((o.protocols||{}).ech ? badge('configured', 'warn') : badge('off', '')) + '</dd></div>' +
+      '</section>' +
+      '<section class="card"><h2>' + esc(t('recent')) + '</h2><div class="list">' +
+        ((o.recentLogs || []).length ? o.recentLogs.map(function(log){
+          return '<div class="list-item"><div><strong>' + esc(log.action) + '</strong><div class="faint">' + esc(log.detail) + '</div></div><span>' + esc(when(log.createdAt)) + '</span></div>';
+        }).join('') : '<div class="faint">' + esc(t('noData')) + '</div>') +
+      '</div></section>' +
+    '</div>';
+    if (o.automation && o.automation.failures && o.automation.failures.length) {
+      html += '<div class="alert warn"><div><b>' + esc(t('automation')) + '</b>' + o.automation.failures.map(function(f){ return esc(f.name + ': ' + f.error); }).join('<br>') + '</div></div>';
+    }
+    return html;
+  }
+
+  function pageUsers(){
+    var u = S.overview ? S.overview.users : {};
+    var html = pageHead(t('users'), 'Active users: ' + (u.active || 0) + ' / ' + (u.capacity || BOOT.maxUsers), '<button class="btn primary" data-act="user-new"' + (S.users.length >= (u.capacity || BOOT.maxUsers) ? ' disabled' : '') + '>' + icon('plus') + esc(t('addUser')) + '</button>');
+    if (S.users.length >= (u.capacity || BOOT.maxUsers)) {
+      html += '<div class="alert warn"><div><b>' + esc(t('capacity')) + '</b>' + esc('The 5-user limit is enforced by the backend. Delete a user to free a slot.') + '</div></div>';
+    }
+    html += '<div class="table-wrap"><table><thead><tr><th>' + esc(t('username')) + '</th><th>' + esc(t('status')) + '</th><th>' + esc(t('usage')) + '</th><th>' + esc(t('expiry')) + '</th><th>' + esc(t('protocols')) + '</th><th>' + esc(t('actions')) + '</th></tr></thead><tbody>' +
+      (S.users.length ? S.users.map(userRow).join('') : '<tr><td colspan="6">' + emptyState(t('noData')) + '</td></tr>') +
+      '</tbody></table></div>';
+    return html;
+  }
+
+  function pageEndpoints(){
+    var rows = S.endpoints.map(function(ep){
+      var health = ep.lastCheckAt ? badge(ep.healthScore + '/100', ep.healthScore >= 60 ? 'ok' : (ep.healthScore >= 30 ? 'warn' : 'err')) : badge('unchecked', '');
+      return '<tr><td><strong>' + esc(ep.name) + '</strong><div class="faint mono">' + esc(ep.host + ':' + ep.port) + '</div></td>' +
+        '<td>' + esc(ep.family) + '</td><td>' + esc(ep.kind) + (ep.country ? ' · ' + esc(ep.country) : '') + '</td>' +
+        '<td>' + health + '<div class="faint">' + esc(ep.lastCheckAt ? when(ep.lastCheckAt) : '—') + '</div></td>' +
+        '<td class="mono">' + esc(ep.lastLatencyMs ? ep.lastLatencyMs + ' ms' : '—') + '<div class="faint">' + esc(ep.failureCount) + ' ×</div></td>' +
+        '<td><div class="btn-row"><button class="btn sm" data-act="endpoint-check" data-id="' + esc(ep.id) + '">' + esc(t('check')) + '</button>' +
+        '<button class="btn sm" data-act="endpoint-history" data-id="' + esc(ep.id) + '">' + esc(t('history')) + '</button>' +
+        '<button class="btn sm" data-act="endpoint-ech" data-id="' + esc(ep.id) + '">ECH</button>' +
+        '<button class="btn sm danger" data-act="endpoint-del" data-id="' + esc(ep.id) + '">' + esc(t('delete')) + '</button></div></td></tr>';
+    }).join('');
+    return pageHead(t('endpoints'), 'Verified catalog. Health levels are reported separately; a TCP connect alone is not a working proxy.',
+      '<button class="btn primary" data-act="endpoint-new">' + icon('plus') + esc(t('addEndpoint')) + '</button>') +
+      (S.endpoints.length ? '<div class="table-wrap"><table><thead><tr><th>' + esc(t('name')) + '</th><th>Family</th><th>' + esc(t('kind')) + '</th><th>Health</th><th>' + esc(t('latency')) + '</th><th>' + esc(t('actions')) + '</th></tr></thead><tbody>' + rows + '</tbody></table></div>' : emptyState());
+  }
+
+  function pageEngine(){
+    var options = S.users.map(function(u){ return '<option value="' + esc(u.id) + '"' + sel(S.selectedUser, u.id) + '>' + esc(u.username) + '</option>'; }).join('');
+    var html = pageHead(t('engine'), 'Deterministic optimizer with explicit compatibility rules. Invalid combinations are rejected and explained.');
+    html += '<section class="card"><div class="form-row"><div class="field" style="min-width:240px"><label>' + esc(t('selectUser')) + '</label><select id="engineUser">' + options + '</select></div>' +
+      '<div class="field" style="max-width:170px"><label>' + esc(t('policy')) + '</label><input id="enginePolicy" value="' + esc((S.settings && S.settings.values && S.settings.values.optimizationPolicy) || 'balanced') + '" disabled></div>' +
+      '<button class="btn primary" data-act="engine-generate" style="align-self:flex-end">' + icon('engine') + esc(t('generate')) + '</button></div></section>';
+
+    if (S.engineResult) {
+      var r = S.engineResult;
+      html += '<section class="card"><h2>' + esc(t('generateDone')) + '</h2><div class="form-row">' + badge(r.generated + ' ' + t('valid'), 'ok') + badge((r.rejected||[]).reduce(function(a,b){return a+b.count;},0) + ' ' + t('rejected'), 'warn') + badge(r.policy, 'info') + '</div>';
+      html += '<div class="table-wrap"><table><thead><tr><th>' + esc(t('protocol')) + '</th><th>' + esc(t('transport')) + '</th><th>' + esc(t('tls')) + '</th><th>' + esc(t('endpoint')) + '</th><th>' + esc(t('format')) + '</th><th>' + esc(t('score')) + '</th><th>' + esc(t('reason')) + '</th></tr></thead><tbody>' +
+        r.plans.map(function(p){
+          return '<tr><td>' + esc(p.protocol) + '</td><td>' + esc(p.transport) + '</td><td>' + esc(p.tlsMode) + '</td>' +
+            '<td>' + esc(p.endpointName || p.host) + '<div class="faint mono">' + esc((p.host||'') + ':' + (p.port||'')) + '</div></td>' +
+            '<td>' + esc(p.format) + '</td><td class="mono">' + esc(p.score) + '</td>' +
+            '<td><div class="card-sub">' + (p.reasons || []).map(function(x){ return esc(optLabel(x)); }).join('<br>') + '</div></td></tr>';
+        }).join('') + '</tbody></table></div>';
+      if (r.rejected && r.rejected.length) {
+        html += '<div class="alert warn"><div><b>' + esc(t('rejected')) + '</b>' + r.rejected.map(function(x){ return esc((x.reason && (optLabel(x.reason) || x.reason.en)) || 'unknown'); }).join('<br>') + '</div></div>';
+      }
+      html += '</section>';
+    }
+    html += '<section class="card"><h2>' + esc(t('configs')) + '</h2><div class="card-sub">' + esc('Stored plans for the selected user, with validation results.') + '</div>' +
+      '<div id="configList" class="list"><button class="btn sm" data-act="engine-load">' + esc(t('refresh')) + '</button></div></section>';
+    return html;
+  }
+
+  function pageSubscriptions(){
+    var subs = (S.subscriptions && S.subscriptions.subscriptions) || [];
+    var html = pageHead(t('subscriptions'), 'Each user has an unguessable token. Rotating a token invalidates the previous links.');
+    html += '<div class="table-wrap"><table><thead><tr><th>' + esc(t('username')) + '</th><th>Token</th><th>Links</th><th>' + esc(t('downloads')) + '</th><th>' + esc(t('actions')) + '</th></tr></thead><tbody>' +
+      (subs.length ? subs.map(function(s){
+        return '<tr><td>' + esc(s.username) + '<div class="faint">' + esc(s.enabled ? t('enabled') : t('disabled')) + '</div></td>' +
+          '<td class="mono">' + esc(s.token ? s.token.slice(0, 10) + '…' : '—') + (s.revoked ? '<div>' + badge(t('revoked') || 'revoked', 'err') + '</div>' : '') + '</td>' +
+          '<td>' + (s.urls ? '<div class="btn-row">' + ['base','singbox','clash','uri'].map(function(k){
+            return '<button class="btn sm" data-act="copy-link" data-url="' + esc(s.urls[k]) + '">' + esc(k) + '</button>';
+          }).join('') + '</div>' : '<span class="faint">—</span>') + '</td>' +
+          '<td class="mono">' + esc(s.downloads || 0) + '</td>' +
+          '<td><div class="btn-row"><button class="btn sm" data-act="sub-rotate" data-id="' + esc(s.userId) + '">' + esc(t('rotate')) + '</button>' +
+          '<button class="btn sm" data-act="sub-toggle" data-id="' + esc(s.userId) + '" data-revoked="' + (s.revoked ? '1' : '0') + '">' + esc(s.revoked ? t('enable') : t('revoke')) + '</button>' +
+          '<a class="btn sm" target="_blank" rel="noopener" href="/status/' + esc(s.token || '') + '">' + esc(t('statusPage')) + '</a></div></td></tr>';
+      }).join('') : '<tr><td colspan="5">' + emptyState() + '</td></tr>') + '</tbody></table></div>' +
+      '<div class="card-sub">' + esc(t('downloadsNote')) + '</div>';
+    return html;
+  }
+
+  function pageScanner(){
+    var html = pageHead(t('scanner'), 'Layered checks: syntax, DNS, TCP, TLS and HTTP. Each level is reported independently.');
+    html += '<section class="card"><form data-form="scan"><div class="form-grid">' +
+      '<div class="field"><label>' + esc(t('scanHost')) + '</label><input name="host" placeholder="1.1.1.1" required></div>' +
+      '<div class="field"><label>' + esc(t('port')) + '</label><input name="port" type="number" value="443" min="1" max="65535"></div>' +
+      '<div class="field"><label>' + esc(t('levels')) + '</label><div class="form-row">' +
+        ['dns','tcp','tls','http'].map(function(l){ return '<label class="check"><input type="checkbox" name="levels" value="' + l + '" checked>' + l.toUpperCase() + '</label>'; }).join('') +
+      '</div></div></div><div class="form-row"><button class="btn primary" type="submit">' + icon('scan') + esc(t('scanRun')) + '</button></div></form></section>';
+    if (S.scanResult) {
+      var r = S.scanResult;
+      html += '<section class="card"><h2>' + esc(t('history')) + '</h2><div class="table-wrap"><table><thead><tr><th>Host</th><th>' + esc(t('status')) + '</th><th>Score</th><th>' + esc(t('latency')) + '</th><th>Details</th></tr></thead><tbody>' +
+        r.results.map(function(x){
+          return '<tr><td class="mono">' + esc(x.host + ':' + x.port) + '</td><td>' + badge(x.status || 'unknown', x.status === 'invalid' || x.status === 'unreachable' ? 'err' : 'info') + '</td>' +
+            '<td class="mono">' + esc(x.score || 0) + '</td><td class="mono">' + esc((x.checks && x.checks.tcp && x.checks.tcp.latencyMs) ? x.checks.tcp.latencyMs + ' ms' : '—') + '</td>' +
+            '<td><div class="card-sub">' + ['syntax','dns','tcp','tls','http'].map(function(level){
+              var c = x.checks && x.checks[level];
+              if (!c) return '';
+              return esc(level + ': ' + (c.ok ? 'ok' : 'fail') + (c.detail ? ' — ' + c.detail : ''));
+            }).filter(Boolean).join('<br>') + '</div></td></tr>';
+        }).join('') + '</tbody></table></div></section>';
+    }
+    return html;
+  }
+
+  function pageDns(){
+    var d = S.dns || { profiles: [], checks: {}, echChecks: {} };
+    var html = pageHead(t('dns'), 'Resolver catalog taken from provider documentation. Tests run from the Worker, not from your network.');
+    html += '<section class="card"><h2>' + esc(t('dns')) + '</h2><div class="table-wrap"><table><thead><tr><th>' + esc(t('provider')) + '</th><th>' + esc(t('ipv4')) + ' / ' + esc(t('ipv6')) + '</th><th>DoH / DoT</th><th>' + esc(t('filtering')) + '</th><th>' + esc(t('source')) + '</th><th></th></tr></thead><tbody>' +
+      (d.profiles || []).map(function(p){
+        var check = d.checks && d.checks[p.id];
+        return '<tr><td><strong>' + esc(p.provider) + '</strong>' + (check ? '<div>' + badge(check.ok ? 'ok' : 'fail', check.ok ? 'ok' : 'err') + '<span class="faint"> ' + esc(check.latencyMs || 0) + ' ms</span></div>' : '') + '</td>' +
+          '<td class="mono">' + esc((p.ipv4||[]).join(', ')) + '<div class="faint">' + esc((p.ipv6||[]).join(', ')) + '</div></td>' +
+          '<td class="mono">' + esc(p.doh || '—') + '<div class="faint">' + esc(p.dot || '—') + '</div></td>' +
+          '<td>' + esc(p.filtering) + '</td><td><a href="' + esc(p.source) + '" target="_blank" rel="noopener">docs</a></td>' +
+          '<td><button class="btn sm" data-act="dns-test" data-id="' + esc(p.id) + '">' + esc(t('test')) + '</button></td></tr>';
+      }).join('') + '</tbody></table></div></section>';
+    html += '<section class="card"><h2>ECH</h2><div class="card-sub">ECH is only reported as active when a real HTTPS/SVCB record publishes it. The Worker checks the record; client support is required.</div>' +
+      '<div class="table-wrap"><table><thead><tr><th>Host</th><th>Clients</th><th>Check</th><th></th></tr></thead><tbody>' +
+      (d.echEntries || []).map(function(e){
+        var check = d.echChecks && d.echChecks[e.host];
+        return '<tr><td class="mono">' + esc(e.host) + '</td><td>' + esc((e.clients||[]).join(', ')) + '</td>' +
+          '<td>' + (check ? badge(check.ok ? 'record found' : 'unavailable', check.ok ? 'ok' : 'warn') + '<div class="faint">' + esc(check.detail || '') + '</div>' : '<span class="faint">not checked</span>') + '</td>' +
+          '<td><button class="btn sm" data-act="ech-test" data-host="' + esc(e.host) + '">' + esc(t('check')) + '</button></td></tr>';
+      }).join('') + '</tbody></table></div></section>' +
+      '<div class="alert info"><div><b>' + esc(t('settingsNetwork')) + '</b>' + esc('DNS profile, TLS fingerprint and ECH settings are saved in Settings → Network.') + '</div></div>';
+    return html;
+  }
+
+  function pageMonitoring(){
+    var u = S.overview ? S.overview.users : {};
+    var tr = S.overview ? S.overview.traffic : {};
+    var html = pageHead(t('monitoring'), 'Traffic is measured at the proxy tunnel. Subscription fetches are shown separately and are not traffic.');
+    html += '<div class="grid two"><section class="card"><h2>' + esc(t('traffic')) + '</h2>' + bars(tr.series) + '</section>' +
+      '<section class="card"><h2>' + esc(t('users')) + '</h2><div class="kv"><dt>' + esc(t('totalUsers')) + '</dt><dd>' + esc(u.active || 0) + ' / ' + esc(u.capacity || BOOT.maxUsers) + '</dd>' +
+      '<dt>Expired</dt><dd>' + esc(u.expired || 0) + '</dd><dt>Quota reached</dt><dd>' + esc(u.quotaReached || 0) + '</dd></div></section></div>';
+    html += '<section class="card"><h2>' + esc(t('usage')) + '</h2><div class="table-wrap"><table><thead><tr><th>' + esc(t('username')) + '</th><th>' + esc(t('usage')) + '</th><th>' + esc(t('quota')) + '</th><th>Requests</th><th>' + esc(t('usageSource')) + '</th></tr></thead><tbody>' +
+      S.users.map(function(user){
+        return '<tr><td>' + esc(user.username) + '</td><td class="mono">' + esc(bytes(user.usedBytes)) + '</td><td class="mono">' + esc(user.dataLimitGb > 0 ? bytes(user.dataLimitGb*1073741824) : t('unlimited')) + '</td>' +
+          '<td class="mono">' + esc(user.requestCount || 0) + '</td><td class="faint">worker-stream</td></tr>';
+      }).join('') + '</tbody></table></div></section>';
+    html += '<section class="card"><h2>' + esc(t('automation')) + '</h2><div id="automationBox"><span class="spinner"></span></div></section>';
+    return html;
+  }
+
+  function pageSecurity(){
+    var a = S.audit || { logs: [], sessions: [], loginAttempts: [] };
+    var html = pageHead(t('security'), 'Sessions are HttpOnly, SameSite=Strict and expire server-side. Passwords use PBKDF2-SHA256.');
+    html += '<div class="grid two">' +
+      '<section class="card"><h2>' + esc(t('changePassword')) + '</h2><form data-form="change-password"><div class="field"><label>' + esc(t('currentPassword')) + '</label><input type="password" name="currentPassword" autocomplete="current-password" required></div>' +
+      '<div class="field"><label>' + esc(t('newPassword')) + '</label><input type="password" name="newPassword" autocomplete="new-password" required minlength="10"></div>' +
+      '<div class="field"><label>' + esc(t('confirmPassword')) + '</label><input type="password" name="confirmPassword" autocomplete="new-password" required minlength="10"></div>' +
+      '<button class="btn primary" type="submit">' + esc(t('save')) + '</button></form></section>' +
+      '<section class="card"><h2>' + esc(t('sessions')) + '</h2>' + (a.sessions.length ? '<div class="list">' + a.sessions.map(function(s){
+        return '<div class="list-item"><span>' + esc(s.ip || '—') + '</span><span class="faint">' + esc(when(s.expiresAt)) + '</span></div>';
+      }).join('') + '</div>' : '<div class="faint">' + esc(t('noData')) + '</div>') +
+      '<button class="btn danger" data-act="revoke-sessions">' + esc(t('revokeSessions')) + '</button></section></div>';
+
+    html += '<section class="card"><h2>' + esc(t('loginAttempts')) + '</h2><div class="table-wrap"><table><thead><tr><th>' + esc(t('time')) + '</th><th>IP</th><th>' + esc(t('status')) + '</th></tr></thead><tbody>' +
+      (a.loginAttempts.length ? a.loginAttempts.map(function(x){
+        return '<tr><td>' + esc(when(x.createdAt)) + '</td><td class="mono">' + esc(x.ip) + '</td><td>' + (x.ok ? badge('ok','ok') : badge('failed','err')) + '</td></tr>';
+      }).join('') : '<tr><td colspan="3" class="faint">' + esc(t('noData')) + '</td></tr>') + '</tbody></table></div></section>';
+
+    html += '<section class="card"><h2>' + esc(t('audit')) + '</h2><div class="table-wrap"><table><thead><tr><th>' + esc(t('time')) + '</th><th>' + esc(t('action')) + '</th><th>' + esc(t('details')) + '</th><th>IP</th></tr></thead><tbody>' +
+      (a.logs.length ? a.logs.map(function(log){
+        return '<tr><td class="faint">' + esc(when(log.createdAt)) + '</td><td>' + esc(log.action) + '</td><td class="faint">' + esc(log.detail) + '</td><td class="mono faint">' + esc(log.ip) + '</td></tr>';
+      }).join('') : '<tr><td colspan="4" class="faint">' + esc(t('noData')) + '</td></tr>') + '</tbody></table></div></section>';
+    return html;
+  }
+
+  function settingsField(field, value){
+    var label = optLabel(field.label);
+    var help = optLabel(field.help);
+    var id = 'sf-' + field.key;
+    var input = '';
+    if (field.type === 'boolean') {
+      input = '<label class="check"><input type="checkbox" name="' + field.key + '" value="yes"' + chk(String(value) === 'yes') + '> ' + esc(field.label[S.lang] || field.label.en) + '</label>';
+      return '<div class="field">' + input + (help ? '<div class="help">' + esc(help) + '</div>' : '') + '</div>';
+    }
+    if (field.type === 'select') {
+      input = '<select name="' + field.key + '" id="' + id + '">' + field.options.map(function(o){
+        return '<option value="' + esc(o.value) + '"' + sel(value, o.value) + '>' + esc(optLabel(o.label) || o.value) + '</option>';
+      }).join('') + '</select>';
+    } else if (field.type === 'multiselect') {
+      var chosen = csv(value).split(',').map(function(x){return x.trim();});
+      input = '<div class="form-row">' + field.options.map(function(o){
+        return '<label class="check"><input type="checkbox" name="' + field.key + '" value="' + esc(o.value) + '"' + (chosen.indexOf(o.value) >= 0 ? ' checked' : '') + '>' + esc(optLabel(o.label)) + '</label>';
+      }).join('') + '</div>';
+    } else if (field.type === 'number') {
+      input = '<input type="number" name="' + field.key + '" id="' + id + '" value="' + esc(value) + '" min="' + (field.min != null ? field.min : '') + '" max="' + (field.max != null ? field.max : '') + '">';
+    } else if (field.type === 'ports') {
+      input = '<input name="' + field.key + '" id="' + id + '" value="' + esc(value) + '" placeholder="443,2053,8443">';
+    } else {
+      input = '<input type="' + (field.type === 'url' ? 'url' : 'text') + '" name="' + field.key + '" id="' + id + '" value="' + esc(value) + '"' + (field.maxLength ? ' maxlength="' + field.maxLength + '"' : '') + '>';
+    }
+    return '<div class="field"><label for="' + id + '">' + esc(label) + '</label>' + input + (help ? '<div class="help">' + esc(help) + '</div>' : '') + '</div>';
+  }
+
+  function pageSettings(){
+    if (!S.settings) return '<div class="page-loading"><span class="spinner"></span>' + esc(t('loading')) + '</div>';
+    var schema = S.settings.schema || [];
+    var values = S.settings.values || {};
+    var conflicts = S.settings.conflicts || [];
+    var tabs = ['general','security','network','proxy','subscriptions','appearance','cloudflare'];
+    var html = pageHead(t('settings'), 'Every setting is validated server-side. Conflicts are reported before saving.',
+      '<button class="btn danger" data-act="settings-reset">' + esc(t('resetSettings')) + '</button>');
+    if (conflicts.length) {
+      html += conflicts.map(function(c){
+        return '<div class="alert ' + (c.severity === 'error' ? 'err' : 'warn') + '"><div><b>' + esc(c.code) + '</b>' + esc(c.message) + '</div></div>';
+      }).join('');
+    }
+    html += '<div class="tabs">' + tabs.map(function(tab){
+      var label = tab === 'general' ? t('settingsGeneral') : tab === 'security' ? t('settingsSecurity') : tab === 'network' ? t('settingsNetwork') : tab;
+      return '<button type="button" data-act="settings-tab" data-tab="' + tab + '" class="' + (S.settingsTab === tab ? 'active' : '') + '">' + esc(label) + '</button>';
+    }).join('') + '</div>';
+    var fields = schema.filter(function(f){ return f.section === S.settingsTab && f.key !== 'cfAccountId'; });
+    if (S.settingsTab === 'cloudflare') {
+      html += '<div class="alert info"><div><b>' + esc(t('cloudflare')) + '</b>' + esc('Cloudflare credentials are managed on the Cloudflare page; the account ID below is optional.') + '</div></div>';
+      fields = schema.filter(function(f){ return f.key === 'cfAccountId'; });
+    }
+    html += '<section class="card"><form data-form="settings" data-section="' + esc(S.settingsTab) + '"><div class="form-grid">' +
+      fields.map(function(f){ return settingsField(f, values[f.key]); }).join('') +
+      '</div><div class="form-row"><button class="btn primary" type="submit">' + esc(t('save')) + '</button>' +
+      '<span class="faint">' + esc(S.settings.storage && S.settings.storage.mode === 'memory' ? 'Memory mode: data is not persistent.' : 'Stored in Cloudflare D1.') + '</span></div></form></section>';
+    return html;
+  }
+
+  function pageCloudflare(){
+    var c = S.cf || { status: {}, permissions: {}, resources: [] };
+    var st = c.status || {};
+    var html = pageHead(t('cloudflare'), 'Scoped API token only. Tokens are encrypted server-side when MILI_ENCRYPTION_KEY is configured and are never returned.');
+    html += '<div class="grid two"><section class="card"><h2>' + esc(t('status')) + '</h2>' +
+      '<div class="kv"><dt>' + esc(t('status')) + '</dt><dd>' + (st.connected ? badge(t('connected'), 'ok') : badge(t('notConnected'), 'warn')) + '</dd>' +
+      '<dt>' + esc(t('encryption')) + '</dt><dd>' + esc(st.encryption || '—') + '</dd>' +
+      '<dt>' + esc(t('accountId')) + '</dt><dd class="mono">' + esc(st.accountId || '—') + '</dd>' +
+      '<dt>Verified</dt><dd>' + esc(when(st.verifiedAt)) + '</dd></div>' +
+      (st.encryptionKeyConfigured ? '' : '<div class="alert warn"><div><b>' + esc(t('warning')) + '</b>' + esc('MILI_ENCRYPTION_KEY is not configured; the token is base64-encoded at rest. Add the secret and reconnect.') + '</div></div>') +
+      '</section>' +
+      '<section class="card"><h2>' + esc(t('connect')) + '</h2><form data-form="cf-token"><div class="field"><label>' + esc(t('token')) + '</label><input type="password" name="token" autocomplete="off" placeholder="••••••••••••••••" required></div>' +
+      '<div class="field"><label>' + esc(t('accountId')) + ' (optional)</label><input name="accountId" class="mono" placeholder="account id"></div>' +
+      '<div class="form-row"><button class="btn primary" type="submit">' + esc(t('verify')) + '</button>' +
+      '<button class="btn" type="button" data-act="cf-test">' + esc(t('test')) + '</button>' +
+      '<button class="btn danger" type="button" data-act="cf-disconnect">' + esc(t('disconnect')) + '</button></div></form></section></div>';
+    html += '<div class="grid two"><section class="card"><h2>' + esc(t('permissions')) + '</h2><ul class="section-note" style="margin:0;padding-inline-start:18px">' +
+      ((c.permissions && c.permissions.required) || []).map(function(x){ return '<li>' + esc(x) + '</li>'; }).join('') +
+      ((c.permissions && c.permissions.optional) || []).map(function(x){ return '<li class="faint">' + esc(x) + '</li>'; }).join('') + '</ul></section>' +
+      '<section class="card"><h2>' + esc(t('workersCheck')) + '</h2><form data-form="cf-workers"><div class="field"><label>' + esc(t('scriptName')) + '</label><input name="scriptName" placeholder="miliconfig"></div>' +
+      '<div class="field"><label>' + esc(t('accountId')) + '</label><input name="accountId" class="mono" value="' + esc(st.accountId || '') + '"></div>' +
+      '<button class="btn" type="submit">' + esc(t('check')) + '</button></form><div class="section-note">Deployment status comes from the Cloudflare API, not from a subscription link.</div></section></div>';
+    if (c.resources && c.resources.length) {
+      html += '<section class="card"><h2>Resources</h2><div class="list">' + c.resources.map(function(r){
+        return '<div class="list-item"><div><strong>' + esc(r.name || r.id) + '</strong><div class="faint mono">' + esc(r.kind + ' ' + (r.accountId || '')) + '</div></div><span>' + esc(r.status) + '</span></div>';
+      }).join('') + '</div></section>';
+    }
+    return html;
+  }
+
+  function pageCapabilities(){
+    var c = S.capabilities || { protocols: [], transports: [], formats: [], limits: [] };
+    var html = pageHead(t('capabilities'), t('capabilitiesNote'));
+    html += '<section class="card"><h2>Protocols</h2><div class="table-wrap"><table><thead><tr><th>Protocol</th><th>Runtime</th><th>Generation</th><th>Transports</th><th>UDP</th><th>TLS</th><th>REALITY</th><th>ECH</th></tr></thead><tbody>' +
+      (c.protocols || []).map(function(p){
+        return '<tr><td><strong>' + esc(p.label) + '</strong><div class="faint">' + esc((p.notes && (p.notes[S.lang] || p.notes.en)) || '') + '</div></td>' +
+          '<td>' + (p.runtime ? badge('yes','ok') : badge('no','err')) + '</td><td>' + (p.configGeneration ? badge('yes','ok') : badge('no','err')) + '</td>' +
+          '<td>' + esc((p.transports||[]).join(', ')) + '</td><td>' + esc(p.udp || 'no') + '</td><td>' + esc(String(p.tls)) + '</td>' +
+          '<td>' + (p.reality ? badge('yes','ok') : badge('no','err')) + '</td><td>' + esc(String(p.ech)) + '</td></tr>';
+      }).join('') + '</tbody></table></div></section>';
+    html += '<div class="grid two"><section class="card"><h2>Output formats</h2><div class="table-wrap"><table><thead><tr><th>Format</th><th>Protocols</th><th>xHTTP</th></tr></thead><tbody>' +
+      (c.formats || []).map(function(f){ return '<tr><td>' + esc(f.label) + '</td><td>' + esc((f.supports||[]).join(', ')) + '</td><td>' + esc(String(f.xhttp)) + '</td></tr>'; }).join('') +
+      '</tbody></table></div></section><section class="card"><h2>Limits</h2><div class="list">' +
+      (c.limits || []).map(function(l){ return '<div class="list-item"><span>' + esc(l[S.lang] || l.en) + '</span></div>'; }).join('') + '</div></section></div>';
+    return html;
+  }
+
+  var renderers = {
+    dashboard: pageDashboard, users: pageUsers, endpoints: pageEndpoints, engine: pageEngine,
+    subscriptions: pageSubscriptions, scanner: pageScanner, dns: pageDns, monitoring: pageMonitoring,
+    security: pageSecurity, settings: pageSettings, cloudflare: pageCloudflare, capabilities: pageCapabilities
+  };
+
+  function render(){
+    renderNav();
+    var view = document.getElementById('view');
+    view.innerHTML = renderers[S.page] ? renderers[S.page]() : emptyState();
+    document.getElementById('sidebar').classList.remove('open');
+    if (S.page === 'monitoring') renderAutomation();
+    if (S.page === 'engine' && S.selectedUser) loadConfigList();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  function renderMetrics() {
-    var users = state.users || [];
-    var totalBytes = users.reduce(function(a, u) { return a + Number(u.usedBytes || 0); }, 0);
-    $('mUsers').innerHTML = users.length + ' <small>/ ' + MAX_USERS + '</small>';
-    $('mUsersFoot').textContent = users.length >= MAX_USERS ? 'سقف کاربران تکمیل است' : (MAX_USERS - users.length) + ' ظرفیت آزاد';
-    $('mTraffic').innerHTML = fmtGb(totalBytes) + ' <small>GB</small>';
-    $('mIps').innerHTML = (state.diagnostics.healthyCfIps || 0) + ' <small>نود</small>';
-    $('mProto').textContent = activeProtocols().join(' + ');
-    $('userChipText').textContent = users.length + ' / ' + MAX_USERS;
-
-    var storage = state.diagnostics.storageMode || (state.diagnostics.d1Enabled ? 'D1' : 'Memory');
-    $('storageText').textContent = 'ذخیره‌سازی ' + storage;
-    $('storageChip').className = 'chip hide-sm' + (storage === 'D1' ? '' : ' warn');
-    $('kvStorage').textContent = storage;
-    $('kvBinding').textContent = state.diagnostics.d1BindingName || '—';
-    $('kvPath').textContent = ADMIN_PATH ? '/' + ADMIN_PATH.slice(0, 6) + '…' + ADMIN_PATH.slice(-4) : '—';
+  function setPage(page){
+    S.page = page;
+    try { history.replaceState(null, '', '#' + page); } catch (e) {}
+    loading();
+    loadPage(page).then(render).catch(showError);
   }
 
-  function renderUsers() {
-    var grid = $('usersGrid');
-    var users = state.users || [];
-    grid.innerHTML = '';
-    $('usersEmpty').style.display = users.length ? 'none' : 'block';
-    users.forEach(function(u, idx) {
-      var used = Number(u.usedBytes || 0);
-      var limitGb = Number(u.dataLimitGb || 0);
-      var pct = limitGb > 0 ? Math.min(100, Math.round((used / (limitGb * 1073741824)) * 100)) : 0;
-      var base = origin() + '/sub/' + userKey(u);
-      var statusUrl = origin() + '/status/' + userKey(u);
-      var card = document.createElement('div');
-      card.className = 'user-card';
-      card.innerHTML = [
-        '<div class="user-head">',
-          '<div><div class="user-name">' + (u.username || ('کاربر ' + (idx + 1))) + '</div>',
-          '<div class="user-uuid">' + (u.preset ? t('card.preset') + ': ' + u.preset : t('card.subscription')) + ' · ' + (u.subNodeCount || 0) + ' ' + t('card.nodes') + '</div></div>',
-          '<span class="pill ' + (u.enabled ? 'on' : 'off') + '">' + (u.enabled ? t('card.active') : t('card.inactive')) + '</span>',
-        '</div>',
-        '<div class="usage"><span>' + t('card.usage') + ' ' + fmtGb(used) + ' GB</span><span>' + (limitGb > 0 ? limitGb + ' GB' : t('card.unlimited')) + '</span></div>',
-        '<div class="bar"><i style="width:' + Math.max(pct, 2) + '%"></i></div>',
-        '<div class="usage"><span>' + t('card.expiry') + ' ' + fmtDate(u.expireAt) + '</span><span>' + (u.subNodeCount || 0) + ' ' + t('card.nodes') + '</span></div>',
-        '<div class="user-tags">' + activeProtocols().map(function(p) { return '<span class="tag on">' + p + '</span>'; }).join('') + '</div>',
-        '<div class="user-actions">',
-          '<button class="btn sm" type="button" data-act="copy" data-url="' + base + '">' + ICO.copy + ' ' + t('btn.copySub') + '</button>',
-          '<button class="btn sm" type="button" data-act="copy" data-url="' + base + '?target=clash">' + ICO.layers + ' Clash</button>',
-          '<button class="btn sm" type="button" data-act="copy" data-url="' + base + '?target=singbox">' + ICO.bolt + ' Singbox</button>',
-          '<a class="btn sm" href="' + statusUrl + '" target="_blank" rel="noopener">' + ICO.external + ' ' + t('btn.status') + '</a>',
-          '<button class="btn sm ghost" type="button" data-act="test-nodes" data-user="' + userKey(u) + '">' + ICO.radar + ' ' + t('btn.testNodes') + '</button>',
-          '<button class="btn sm ghost" type="button" data-act="reset-user" data-id="' + u.id + '">' + ICO.refresh + ' ' + t('btn.resetUser') + '</button>',
-          '<button class="btn sm danger" type="button" data-act="delete-user" data-id="' + u.id + '">' + ICO.trash + '</button>',
-        '</div>'
-      ].join('');
-      grid.appendChild(card);
+  function showError(err){
+    document.getElementById('view').innerHTML = pageHead(t('error'), '') + '<div class="alert err"><div><b>' + esc(t('error')) + '</b>' + esc(err && err.message ? err.message : String(err)) + '</div></div>';
+  }
+
+  function loadPage(page){
+    var jobs = [];
+    function need(loader){ jobs.push(loader()); }
+    if (page === 'dashboard') need(loadOverview);
+    if (page === 'users') { need(loadOverview); need(loadUsers); }
+    if (page === 'endpoints') need(loadEndpoints);
+    if (page === 'engine') { need(loadUsers); need(loadSettings); }
+    if (page === 'subscriptions') need(loadSubscriptions);
+    if (page === 'scanner') return Promise.resolve();
+    if (page === 'dns') return loadDns();
+    if (page === 'monitoring') { need(loadOverview); need(loadUsers); need(loadAutomation); }
+    if (page === 'security') { need(loadAudit); }
+    if (page === 'settings') { need(loadSettings); }
+    if (page === 'cloudflare') { need(loadCloudflare); }
+    if (page === 'capabilities') { need(loadCapabilities); }
+    return Promise.all(jobs);
+  }
+
+  function loadOverview(){ return api('/admin/overview').then(function(d){ S.overview = d; }); }
+  function loadUsers(){ return api('/users').then(function(d){ S.users = d.users || []; }); }
+  function loadEndpoints(){ return api('/endpoints').then(function(d){ S.endpoints = d.endpoints || []; }); }
+  function loadSubscriptions(){ return api('/subscriptions').then(function(d){ S.subscriptions = d; }); }
+  function loadSettings(){ return api('/settings').then(function(d){ S.settings = d; }); }
+  function loadAudit(){ return api('/audit?limit=50').then(function(d){ S.audit = d; }); }
+  function loadCloudflare(){ return api('/cloudflare').then(function(d){ S.cf = d; }); }
+  function loadCapabilities(){ return api('/capabilities').then(function(d){ S.capabilities = d; }); }
+  function loadDns(){ return api('/dns').then(function(d){ S.dns = d; }); }
+  function loadAutomation(){ return api('/automation').then(function(d){ S.automation = d; }); }
+
+  function renderAutomation(){
+    var box = document.getElementById('automationBox');
+    if (!box) return;
+    if (!S.automation) { box.innerHTML = '<span class="spinner"></span>'; return; }
+    box.innerHTML = '<div class="table-wrap"><table><thead><tr><th>' + esc(t('automation')) + '</th><th>' + esc(t('interval')) + '</th><th>' + esc(t('lastCheck')) + '</th><th>' + esc(t('status')) + '</th><th></th></tr></thead><tbody>' +
+      S.automation.jobs.map(function(job){
+        return '<tr><td><strong>' + esc(job.name) + '</strong><div class="faint">' + esc(job.kind) + '</div></td>' +
+          '<td class="mono">' + esc(job.intervalMinutes) + '</td><td>' + esc(job.lastRunAt ? when(job.lastRunAt) : t('neverRun')) + '</td>' +
+          '<td>' + (job.lastStatus === 'failed' ? badge('failed','err') : job.lastStatus ? badge(job.lastStatus,'ok') : badge('—','')) + (job.lastError ? '<div class="faint">' + esc(job.lastError) + '</div>' : '') + '</td>' +
+          '<td><div class="btn-row"><button class="btn sm" data-act="automation-run" data-id="' + esc(job.id) + '">' + esc(t('runNow')) + '</button>' +
+          '<button class="btn sm" data-act="automation-toggle" data-id="' + esc(job.id) + '" data-enabled="' + (job.enabled ? '1' : '0') + '">' + esc(job.enabled ? 'disable' : 'enable') + '</button></div></td></tr>';
+      }).join('') + '</tbody></table></div>';
+  }
+
+  function modal(title, bodyHtml, submitLabel, onSubmit, submitClass){
+    document.getElementById('modalTitle').textContent = title;
+    document.getElementById('modalBody').innerHTML = bodyHtml;
+    document.getElementById('modalFoot').innerHTML = '<button class="btn" type="button" data-act="modal-close">' + esc(t('cancel')) + '</button>' +
+      '<button class="btn ' + (submitClass || 'primary') + '" type="submit">' + esc(submitLabel || t('save')) + '</button>';
+    document.getElementById('modal').hidden = false;
+    S.modalSubmit = onSubmit;
+    setTimeout(function(){ var first = document.querySelector('#modalBody input, #modalBody select'); if (first) first.focus(); }, 30);
+  }
+  function closeModal(){
+    document.getElementById('modal').hidden = true;
+    S.modalSubmit = null;
+  }
+
+  function formValues(form){
+    var data = new FormData(form);
+    var out = {};
+    data.forEach(function(value, key){
+      if (out[key] === undefined) out[key] = value;
+      else if (Array.isArray(out[key])) out[key].push(value);
+      else out[key] = [out[key], value];
     });
-    renderMetrics();
-  }
-
-  function renderLocations() {
-    var grid = $('locGrid');
-    if (!grid) return;
-    var base = origin() + '/sub/' + (userKey(state.users[0]) || ADMIN_PATH);
-    var countries = INITIAL_DATA.countrySources || {};
-    var html = '<div class="loc-card"><div><div class="loc-name">همه لوکیشن‌ها</div><div class="loc-meta">MULTI</div></div>' +
-      '<button class="btn sm" type="button" data-act="copy" data-url="' + base + '?country=MULTI">' + ICO.copy + ' کپی</button></div>';
-    Object.keys(countries).forEach(function(code) {
-      html += '<div class="loc-card"><div><div class="loc-name">' + countries[code].name + '</div><div class="loc-meta">' + code + '</div></div>' +
-        '<div class="toolbar">' +
-        '<button class="btn sm" type="button" data-act="copy" data-url="' + base + '?country=' + code + '">' + ICO.copy + ' کپی</button>' +
-        '<button class="btn sm ghost" type="button" data-act="country-proxy" data-code="' + code + '">' + ICO.link + ' پروکسی → s</button>' +
-        '<button class="btn sm ghost" type="button" data-act="country-ip" data-code="' + code + '">' + ICO.globe + ' آی‌پی → yx</button>' +
-        '</div></div>';
-    });
-    grid.innerHTML = html;
-  }
-
-  function fillSettings() {
-    var c = state.config || {};
-    document.querySelectorAll('.switch input[data-key]').forEach(function(input) {
-      input.checked = c[input.getAttribute('data-key')] === 'yes';
-    });
-    document.querySelectorAll('input[data-key], select[data-key]').forEach(function(input) {
-      if (input.type === 'checkbox') return;
-      var key = input.getAttribute('data-key');
-      var val = c[key];
-      if (key === 'ipRotation') {
-        var map = { 0: 'off', '0': 'off', 5: '5m', 15: '15m', 30: '30m', 60: '1h', 1440: '24h' };
-        val = (typeof val === 'string' && isNaN(Number(val))) ? val : (map[val] || 'off');
-      }
-      if (val === undefined || val === null) val = '';
-      input.value = String(val);
-    });
-    var pathView = $('adminPathView');
-    if (pathView) pathView.value = ADMIN_PATH ? '/' + ADMIN_PATH : '—';
-    var dnsSel = $('dnsPreset');
-    if (dnsSel) {
-      var presets = INITIAL_DATA.dnsPresets || [];
-      var match = presets.filter(function(d) { return d.value === c.customDNS; })[0];
-      dnsSel.value = match ? c.customDNS : (c.customDNS ? 'custom' : (presets[0] ? presets[0].value : 'custom'));
-    }
-  }
-
-  var LANG = localStorage.getItem('mili_lang') === 'en' ? 'en' : 'fa';
-  function t(key) {
-    var dict = (INITIAL_DATA.i18n || {})[LANG] || (INITIAL_DATA.i18n || {}).fa || {};
-    return dict[key] || key;
-  }
-  function updateThemeLabel() {
-    var btn = $('themeBtn');
-    if (!btn) return;
-    var label = btn.querySelector('span[data-i18n]');
-    var light = document.body.classList.contains('light-mode');
-    var text = LANG === 'en' ? (light ? 'Dark mode' : 'Light mode') : (light ? 'حالت شب' : 'حالت روز');
-    if (label) label.textContent = text;
-  }
-  function applyLanguage() {
-    document.documentElement.lang = LANG;
-    document.documentElement.dir = LANG === 'en' ? 'ltr' : 'rtl';
-    document.querySelectorAll('[data-i18n]').forEach(function(el) {
-      var key = el.getAttribute('data-i18n');
-      var text = t(key);
-      if (text) el.textContent = text;
-    });
-    updateThemeLabel();
-  }
-  function toggleTheme() {
-    var light = document.body.classList.toggle('light-mode');
-    localStorage.setItem('mili_theme', light ? 'light' : 'dark');
-    updateThemeLabel();
-  }
-  function toggleLang() {
-    LANG = LANG === 'fa' ? 'en' : 'fa';
-    localStorage.setItem('mili_lang', LANG);
-    applyLanguage();
-    renderUsers();
-    renderLocations();
-    if (typeof scanResults !== 'undefined' && scanResults.length) renderScanRows(scanResults);
-  }
-
-  // هشدار هوشمند تداخل تنظیمات
-  function detectConflicts(c) {
-    var out = [];
-    if (c.es === 'yes' && c.frag === 'yes') out.push('Shadowsocks از فرگمنت پشتیبانی نمی‌کند؛ نودهای SS بدون fragment ساخته می‌شوند (مجاز است).');
-    if (c.ech === 'yes' && !/^https:\/\//i.test(String(c.customDNS || ''))) out.push('ECH به یک DNS از نوع DoH (https://) نیاز دارد.');
-    if (c.ech === 'yes' && c.dkby === 'no') out.push('با فعال بودن ECH، پورت‌های HTTP خودکار حذف می‌شوند.');
-    if (c.frag === 'yes' && (!c.fragmentPreset || c.fragmentPreset === 'off')) out.push('فرگمنت روشن است اما پریست روی «غیرفعال» است؛ پارامتری ساخته نمی‌شود.');
-    if (c.epi === 'no' && c.epd === 'no' && !String(c.yx || '').trim()) out.push('همه منابع آدرس خاموش‌اند؛ سابلینک فقط از هاست ورکر ساخته می‌شود.');
-    if (c.ev === 'no' && c.et === 'no' && c.ex === 'no' && c.es === 'no') out.push('هیچ پروتکلی روشن نیست؛ هسته به‌ناچار VLESS را فعال می‌کند.');
-    if (String(c.s || '').trim() && !/^(socks5?|https?):\/\//i.test(String(c.s).trim())) out.push('آدرس پروکسی خروجی (s) باید با socks5:// یا http:// شروع شود.');
-    if (c.yxURL && c.egi === 'no') out.push('آدرس yxURL وارد شده اما لیست آی‌پی خارجی (EGI) خاموش است.');
-    var ports = String(c.ports || '').split(/[,\s]+/).filter(Boolean).map(Number).filter(function(p) { return p >= 1 && p <= 65535; });
-    if (!ports.length) out.push('لیست پورت‌های نود خالی/نامعتبر است؛ از 443 استفاده می‌شود.');
-    if (c.ipRotation && c.ipRotation !== 'off' && !String(c.yx || '').trim()) out.push('چرخش آی‌پی فعال است اما لیست yx خالی است.');
     return out;
   }
-  function renderWarnings(list) {
-    var box = $('configWarnings');
-    if (!box) return;
-    if (!list.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
-    box.style.display = 'block';
-    box.innerHTML = '<b>' + t('warn.title') + '</b><ul>' + list.map(function(w) { return '<li>' + w + '</li>'; }).join('') + '</ul>';
+
+  function userForm(user){
+    var u = user || {};
+    var c = u.config || {};
+    var protocols = ['ev','et','ex','es'];
+    return '<div class="form-grid"><div class="field"><label>User name</label><input name="username" value="' + esc(u.username || '') + '" required></div>' +
+      '<div class="field"><label>Nodes per subscription</label><input type="number" name="subNodeCount" min="1" max="500" value="' + esc(u.subNodeCount || 50) + '"></div>' +
+      '<div class="field"><label>Quota (GB, 0 = unlimited)</label><input type="number" name="dataLimitGb" min="0" step="0.1" value="' + esc(u.dataLimitGb || 0) + '"></div>' +
+      '<div class="field"><label>Expiry (days, 0 = never)</label><input type="number" name="expireDays" min="0" value="' + esc(u.expireDays || 0) + '"></div>' +
+      '<div class="field"><label>IP limit</label><input type="number" name="ipLimit" min="1" value="' + esc(u.ipLimit || 50) + '"></div>' +
+      '<div class="field"><label>Note</label><input name="note" value="' + esc(u.note || '') + '"></div></div>' +
+      '<div class="field"><label>Protocols</label><div class="form-row">' + protocols.map(function(k){
+        var label = { ev:'VLESS', et:'Trojan', ex:'xHTTP', es:'Shadowsocks' }[k];
+        var value = u.id ? String(c[k]) === 'yes' : (k === 'ev');
+        return '<label class="check"><input type="checkbox" name="' + k + '"' + (value ? ' checked' : '') + '>' + label + '</label>';
+      }).join('') + '</div></div>' +
+      '<div class="field"><label class="check"><input type="checkbox" name="enabled"' + ((u.enabled === undefined || u.enabled) ? ' checked' : '') + '> Enabled</label></div>';
   }
 
-  function saveSettings() {
-    var payload = {};
-    document.querySelectorAll('.switch input[data-key]').forEach(function(input) {
-      payload[input.getAttribute('data-key')] = input.checked ? 'yes' : 'no';
+  function openUserModal(user){
+    modal(user ? t('editUser') : t('addUser'), userForm(user), t('save'), function(values){
+      var payload = {
+        username: values.username,
+        subNodeCount: Number(values.subNodeCount) || 50,
+        dataLimitGb: Number(values.dataLimitGb) || 0,
+        expireDays: Number(values.expireDays) || 0,
+        ipLimit: Number(values.ipLimit) || 50,
+        note: values.note || '',
+        enabled: Boolean(values.enabled),
+        config: {
+          ev: values.ev ? 'yes' : 'no', et: values.et ? 'yes' : 'no',
+          ex: values.ex ? 'yes' : 'no', es: values.es ? 'yes' : 'no'
+        }
+      };
+      var promise = user
+        ? api('/users/' + encodeURIComponent(user.id), { method: 'PATCH', body: payload })
+        : api('/users', { method: 'POST', body: payload });
+      return promise.then(function(){
+        closeModal(); toast(t('saved'), 'ok');
+        return Promise.all([loadOverview(), loadUsers()]).then(render);
+      });
     });
-    document.querySelectorAll('input[data-key], select[data-key]').forEach(function(input) {
-      if (input.type === 'checkbox') return;
-      payload[input.getAttribute('data-key')] = String(input.value || '').trim();
-    });
-    var warnings = detectConflicts(payload);
-    renderWarnings(warnings);
-    if (warnings.length && !confirm(t('warn.title') + '\n\n' + warnings.map(function(w, i) { return (i + 1) + '. ' + w; }).join('\n') + '\n\nادامه می‌دهید؟')) return;
-    var btn = document.querySelector('[data-act="save-config"]');
-    if (btn) btn.disabled = true;
-    api('/api/config', { method: 'POST', body: JSON.stringify(payload) })
-      .then(function(data) {
-        if (data.success) {
-          state.config = Object.assign({}, state.config, payload);
-          fillSettings();
-          renderMetrics();
-          showToast('تنظیمات در D1 ذخیره شد', 'ok');
-        } else {
-          showToast(data.message || 'خطا در ذخیره تنظیمات', 'err');
-        }
-      })
-      .catch(function() { showToast('خطای شبکه در ذخیره تنظیمات', 'err'); })
-      .finally(function() { if (btn) btn.disabled = false; });
   }
 
-  function createUser() {
-    var username = ($('newUsername').value || '').trim();
-    if (username.length < 2) { showToast('نام کاربری باید حداقل ۲ کاراکتر باشد', 'err'); return; }
-    var body = {
-      username: username,
-      preset: $('newPreset').value,
-      dataLimitGb: Number($('newLimit').value) || 0,
-      expireDays: Number($('newDays').value) || 0,
-      subNodeCount: Number($('newNodes').value) || 50,
-      config: {
-        ev: $('cfgEv') ? $('cfgEv').value : 'yes',
-        et: $('cfgEt') ? $('cfgEt').value : 'no',
-        es: $('cfgEs') ? $('cfgEs').value : 'yes',
-        ex: $('cfgEx') ? $('cfgEx').value : 'no',
-        ech: $('cfgEch') ? $('cfgEch').value : 'no',
-        frag: $('cfgFrag') ? $('cfgFrag').value : 'yes',
-        customDNS: $('cfgDNS') ? $('cfgDNS').value : '',
-        customECHDomain: $('cfgEchDomain') ? $('cfgEchDomain').value : '',
-        ports: $('cfgPorts') ? $('cfgPorts').value.trim() : '',
-        fp: $('cfgFp') ? $('cfgFp').value : 'chrome',
-        patt: $('cfgPatt') ? $('cfgPatt').value : '/?ed=2048',
-        yx: $('cfgYx') ? $('cfgYx').value.trim() : '',
-        s: $('cfgS') ? $('cfgS').value.trim() : ''
-      }
-    };
-    api('/api/users', { method: 'POST', body: JSON.stringify(body) })
-      .then(function(data) {
-        if (data.success) {
-          state.users.push(data.user);
-          renderUsers();
-          renderLocations();
-          closeModal('createModal');
-          $('newUsername').value = '';
-          showToast(data.message || 'کاربر ساخته شد', 'ok');
-        } else {
-          showToast(data.message || 'خطا در ساخت کاربر', 'err');
-        }
-      })
-      .catch(function() { showToast('خطای شبکه در ساخت کاربر', 'err'); });
+  function endpointForm(){
+    return '<div class="form-grid"><div class="field"><label>Name</label><input name="name" required></div>' +
+      '<div class="field"><label>Host / IP</label><input name="host" class="mono" required placeholder="104.16.0.1 or example.com"></div>' +
+      '<div class="field"><label>Port</label><input name="port" type="number" value="443" min="1" max="65535"></div>' +
+      '<div class="field"><label>Kind</label><select name="kind"><option value="cloudflare">cloudflare</option><option value="static">static</option><option value="domain">domain</option><option value="origin">origin</option><option value="chain">chain</option></select></div>' +
+      '<div class="field"><label>Country (optional, ISO-2)</label><input name="country" maxlength="2" placeholder="DE"></div>' +
+      '<div class="field"><label>Provider</label><input name="provider"></div>' +
+      '<div class="field"><label>Protocol</label><select name="protocol"><option value="vless">VLESS</option><option value="trojan">Trojan</option><option value="shadowsocks">Shadowsocks</option></select></div>' +
+      '<div class="field"><label>Transport</label><select name="transport"><option value="ws">WebSocket</option><option value="xhttp">xHTTP</option></select></div>' +
+      '<div class="field"><label>TLS</label><select name="tlsMode"><option value="tls">TLS</option><option value="none">None</option></select></div></div>' +
+      '<div class="field"><label>Notes</label><textarea name="notes"></textarea></div>' +
+      '<div class="alert info"><div>Location is metadata you supply. The panel never invents a country. Testing a TCP port does not prove the proxy protocol works.</div></div>';
   }
 
-  function deleteUser(id) {
-    if (!confirm('این کاربر حذف شود؟')) return;
-    api('/api/users?id=' + encodeURIComponent(id), { method: 'DELETE' })
-      .then(function(data) {
-        if (data.success) {
-          state.users = state.users.filter(function(u) { return u.id !== id; });
-          renderUsers(); renderLocations();
-          showToast('کاربر حذف شد', 'ok');
-        } else {
-          showToast(data.message || 'خطا در حذف کاربر', 'err');
-        }
-      })
-      .catch(function() { showToast('خطای شبکه در حذف کاربر', 'err'); });
-  }
-
-  function resetUser(id) {
-    if (!confirm('مصرف این کاربر صفر شود؟')) return;
-    api('/api/users', { method: 'PUT', body: JSON.stringify({ id: id, action: 'reset' }) })
-      .then(function(data) {
-        if (data.success) {
-          state.users = state.users.map(function(u) { return u.id === id ? data.user : u; });
-          renderUsers();
-          showToast(data.message || 'مصرف صفر شد', 'ok');
-        } else {
-          showToast(data.message || 'خطا در ریست مصرف', 'err');
-        }
-      })
-      .catch(function() { showToast('خطای شبکه در ریست مصرف', 'err'); });
-  }
-
-  function reloadUsers() {
-    api('/api/users?t=' + Date.now())
-      .then(function(data) {
-        if (data.success) {
-          state.users = data.users || [];
-          renderUsers(); renderLocations();
-          showToast('لیست کاربران بروزرسانی شد', 'ok');
-        }
-      })
-      .catch(function() { showToast('خطا در دریافت کاربران', 'err'); });
-  }
-
-  function renderScanRows(items) {
-    var body = $('scanBody');
-    if (!items.length) {
-      body.innerHTML = '<tr><td colspan="6" class="empty">' + t('scan.none') + '</td></tr>';
+  function handleAction(act, el){
+    var id = el.getAttribute('data-id');
+    if (act === 'refresh') { loading(); loadPage(S.page).then(render).catch(showError); return; }
+    if (act === 'logout') { api('/auth/logout', { method:'POST', body:{} }).finally(function(){ location.reload(); }); return; }
+    if (act === 'menu') { document.getElementById('sidebar').classList.toggle('open'); return; }
+    if (act === 'modal-close') { closeModal(); return; }
+    if (act === 'user-new') { openUserModal(null); return; }
+    if (act === 'user-edit') { openUserModal(S.users.filter(function(x){return x.id === id;})[0]); return; }
+    if (act === 'user-reset') {
+      if (!confirm('Reset measured usage for this user?')) return;
+      api('/users/' + encodeURIComponent(id) + '/reset-usage', { method:'POST', body:{} }).then(function(){
+        toast(t('saved'), 'ok'); return loadPage(S.page);
+      }).then(render).catch(showError); return;
+    }
+    if (act === 'user-del') {
+      var u = S.users.filter(function(x){return x.id === id;})[0];
+      var typed = prompt(t('confirmDeleteUser'), '');
+      if (!typed) return;
+      api('/users/' + encodeURIComponent(id), { method:'DELETE', body:{ confirm: typed } }).then(function(){
+        toast(t('userDeleted'), 'ok'); return Promise.all([loadOverview(), loadUsers()]);
+      }).then(render).catch(function(err){ toast(err.message, 'err'); }); return;
+    }
+    if (act === 'sub-rotate') {
+      if (!confirm(t('confirmRevoke'))) return;
+      api('/users/' + encodeURIComponent(id) + '/rotate-sub', { method:'POST', body:{} }).then(function(){
+        toast(t('saved'), 'ok'); return loadPage(S.page);
+      }).then(render).catch(function(err){ toast(err.message, 'err'); }); return;
+    }
+    if (act === 'sub-toggle') {
+      var revoked = el.getAttribute('data-revoked') === '1';
+      api('/users/' + encodeURIComponent(id) + '/revoke-sub', { method:'POST', body:{ revoked: !revoked } }).then(function(){
+        toast(t('saved'), 'ok'); return loadPage(S.page);
+      }).then(render).catch(function(err){ toast(err.message, 'err'); }); return;
+    }
+    if (act === 'copy-link') {
+      var text = el.getAttribute('data-url') || '';
+      if (navigator.clipboard) navigator.clipboard.writeText(text).then(function(){ toast(t('copied'), 'ok'); }).catch(function(){});
       return;
     }
-    body.innerHTML = items.map(function(p) {
-      var latClass = p.latencyMs < 150 ? 'lat-fast' : (p.latencyMs < 400 ? 'lat-med' : 'lat-slow');
-      var isIp = p.kind === 'ip';
-      var ipLabel = p.family === 'ipv6' ? 'IPv6' : (p.family === 'domain' ? t('scan.domain') : 'IPv4');
-      var typeLabel = isIp ? (t('scan.ipStatic') + ' · ' + ipLabel) : (t('scan.proxy') + ' · ' + p.protocol);
-      var action = isIp
-        ? '<button class="btn sm" type="button" data-act="add-ip" data-ip="' + p.ip + '" data-port="' + p.port + '">' + ICO.plus + ' ' + t('btn.addToYx') + '</button>'
-        : '<button class="btn sm" type="button" data-act="use-proxy" data-proxy="' + String(p.proxy || '').replace(/"/g, '&quot;') + '">' + ICO.link + ' ' + t('btn.connectS') + '</button>';
-      return '<tr>' +
-        '<td><span class="code-badge">' + p.code + '</span> ' + p.country + '</td>' +
-        '<td class="mono">' + (String(p.ip).includes(':') ? '[' + p.ip + ']' : p.ip) + ':' + p.port + '</td>' +
-        '<td><span class="tag on">' + typeLabel + '</span></td>' +
-        '<td class="mono ' + latClass + '">' + p.latencyMs + ' ms</td>' +
-        '<td><span class="tag ' + (p.verified === false ? '' : 'on') + '">' + (p.verified === false ? t('scan.unverified') : t('scan.online')) + '</span></td>' +
-        '<td>' + action + '</td>' +
-      '</tr>';
-    }).join('');
-  }
-
-  function scanRequest(payload) {
-    return fetch(origin() + '/api/scanner/fetch-and-test', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    }).then(function(res) { return res.json(); });
-  }
-
-  function applyScanItems(target, items) {
-    return fetch(origin() + '/api/scanner/apply', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Mili-Admin': '1' },
-      body: JSON.stringify({ target: target, items: items })
-    })
-      .then(function(res) { return res.json(); })
-      .then(function(data) {
-        showToast(data.message || (data.success ? 'اعمال شد' : 'خطا در اعمال'), data.success ? 'ok' : 'err');
-        if (data.success) {
-          return api('/api/config').then(function(cfg) {
-            if (cfg && typeof cfg === 'object' && !cfg.error) {
-              state.config = Object.assign({}, state.config, cfg);
-              fillSettings();
-            }
-            return data;
-          });
-        }
-        return data;
-      })
-      .catch(function() { showToast('خطای شبکه در اعمال نتیجه اسکن', 'err'); });
-  }
-
-  function runScan() {
-    var country = $('scanCountry').value;
-    var limit = $('scanLimit').value;
-    var kind = $('scanKind') ? $('scanKind').value : 'proxy';
-    var family = $('scanFamily') ? $('scanFamily').value : 'any';
-    var btn = $('btnScan');
-    var status = $('scanStatus');
-    btn.disabled = true;
-    status.className = 'scan-status';
-    status.textContent = kind === 'ip'
-      ? 'در حال نمونه‌گیری و تست واقعی آی‌پی‌های ثابت...'
-      : 'در حال دریافت زنده لیست‌ها و تست واقعی اتصال TCP...';
-    $('scanBody').innerHTML = '<tr><td colspan="6" class="empty">در حال تست...</td></tr>';
-
-    scanRequest({ country: country, limit: limit, kind: kind, family: family })
-      .then(function(data) {
-        if (data.success && data.proxies && data.proxies.length) {
-          scanResults = data.proxies;
-          renderScanRows(data.proxies);
-          status.textContent = data.message || (data.proxies.length + ' مورد آنلاین از ' + data.testedCount + ' تست');
-        } else {
-          $('scanBody').innerHTML = '<tr><td colspan="6" class="empty">موردی یافت نشد.</td></tr>';
-          status.className = 'scan-status err';
-          status.textContent = data.message || 'دریافت لیست یا تست ناموفق بود.';
-        }
-      })
-      .catch(function() {
-        $('scanBody').innerHTML = '<tr><td colspan="6" class="empty">خطا.</td></tr>';
-        status.className = 'scan-status err';
-        status.textContent = 'خطای شبکه در اجرای اسکنر.';
-      })
-      .finally(function() {
-        btn.disabled = false;
+    if (act === 'endpoint-new') {
+      modal(t('addEndpoint'), endpointForm(), t('create'), function(values){
+        return api('/endpoints', { method:'POST', body: values }).then(function(){
+          closeModal(); toast(t('endpointAdded'), 'ok'); return loadEndpoints().then(render);
+        });
       });
-  }
-
-  function syncConditionalFields() {
-    document.querySelectorAll('[data-show-when]').forEach(function(el) {
-      var key = el.getAttribute('data-show-when');
-      var input = document.querySelector('.switch input[data-key="' + key + '"]');
-      el.style.display = (!input || input.checked) ? '' : 'none';
-    });
-    var famWrap = $('scanFamilyWrap');
-    if (famWrap) {
-      var kindSel = $('scanKind');
-      famWrap.style.display = (kindSel && kindSel.value === 'ip') ? '' : 'none';
+      return;
     }
-  }
-
-  function rotatePath() {
-    if (!confirm(t('toast.rotateConfirm'))) return;
-    fetch(origin() + '/api/admin/rotate-path', { method: 'POST' })
-      .then(function(res) { return res.json(); })
-      .then(function(data) {
-        if (data.success && data.redirect) {
-          window.location.href = data.redirect;
-        } else {
-          showToast(data.message || t('toast.network'), 'err');
+    if (act === 'endpoint-check') {
+      toast(t('loading'), 'ok');
+      api('/endpoints/' + encodeURIComponent(id) + '/check', { method:'POST', body:{} }).then(function(d){
+        toast((d.result && d.result.status ? d.result.status : 'checked') + ' · ' + (d.result ? d.result.score : 0) + '/100', 'ok');
+        return loadEndpoints();
+      }).then(render).catch(function(err){ toast(err.message, 'err'); }); return;
+    }
+    if (act === 'endpoint-history') {
+      var ep = S.endpoints.filter(function(x){return x.id === id;})[0];
+      api('/endpoints/' + encodeURIComponent(id) + '/history').then(function(d){
+        modal((ep ? ep.name : id) + ' · ' + t('history'),
+          '<div class="table-wrap"><table><thead><tr><th>' + esc(t('time')) + '</th><th>Level</th><th>Score</th><th>Latency</th><th>Detail</th></tr></thead><tbody>' +
+          ((d.history || []).length ? d.history.map(function(h){
+            return '<tr><td>' + esc(when(h.checkedAt)) + '</td><td>' + esc(h.level) + '</td><td>' + (h.ok ? badge('ok','ok') : badge('fail','err')) + '</td><td class="mono">' + esc(h.latencyMs) + ' ms</td><td class="faint">' + esc(h.detail) + '</td></tr>';
+          }).join('') : '<tr><td colspan="5" class="faint">' + esc(t('noData')) + '</td></tr>') + '</tbody></table></div>',
+          t('close'), function(){ closeModal(); });
+        var foot = document.getElementById('modalFoot');
+        foot.innerHTML = '<button class="btn" type="button" data-act="modal-close">' + esc(t('close')) + '</button>';
+      }).catch(function(err){ toast(err.message, 'err'); });
+      return;
+    }
+    if (act === 'endpoint-ech') {
+      api('/endpoints/' + encodeURIComponent(id) + '/ech-check', { method:'POST', body:{} }).then(function(d){
+        toast(d.hostname + ': ' + (d.result && d.result.ok ? 'ECH record found' : (d.result ? d.result.detail : 'not available')), d.result && d.result.ok ? 'ok' : 'err');
+      }).catch(function(err){ toast(err.message, 'err'); }); return;
+    }
+    if (act === 'endpoint-del') {
+      if (!confirm('Delete this endpoint?')) return;
+      api('/endpoints/' + encodeURIComponent(id), { method:'DELETE' }).then(function(){ toast(t('saved'),'ok'); return loadEndpoints(); }).then(render).catch(function(err){ toast(err.message,'err'); }); return;
+    }
+    if (act === 'engine-load') { loadConfigList(); return; }
+    if (act === 'engine-generate') {
+      var userId = document.getElementById('engineUser').value;
+      S.selectedUser = userId;
+      toast(t('loading'), 'ok');
+      api('/configurations/generate', { method:'POST', body:{ userId: userId, limit: 24 } }).then(function(d){
+        S.engineResult = d; toast(t('generateDone'), 'ok'); render();
+      }).catch(function(err){
+        S.engineResult = null;
+        toast(err.message, 'err');
+        if (err.data && err.data.error && err.data.error.rejected) {
+          var list = err.data.error.rejected.map(function(x){ return x.code + ' (' + x.count + ')'; }).join(', ');
+          toast(list, 'err');
         }
-      })
-      .catch(function() { showToast(t('toast.network'), 'err'); });
+      }); return;
+    }
+    if (act === 'settings-tab') { S.settingsTab = el.getAttribute('data-tab'); render(); return; }
+    if (act === 'settings-reset') {
+      if (!confirm(t('confirmReset'))) return;
+      api('/settings/reset', { method:'POST', body:{} }).then(function(){ toast(t('saved'),'ok'); return loadSettings(); }).then(render).catch(function(err){ toast(err.message,'err'); }); return;
+    }
+    if (act === 'dns-test') {
+      toast(t('loading'), 'ok');
+      api('/dns/test', { method:'POST', body:{ profileId: id } }).then(function(d){
+        toast(d.profileId + ': ' + (d.record.ok ? 'ok ' + (d.record.latencyMs||0) + 'ms' : (d.record.error || 'failed')), d.record.ok ? 'ok' : 'err');
+        return loadDns();
+      }).then(render).catch(function(err){ toast(err.message,'err'); }); return;
+    }
+    if (act === 'ech-test') {
+      var host = el.getAttribute('data-host');
+      api('/dns/ech-test', { method:'POST', body:{ hostname: host } }).then(function(d){
+        toast(host + ': ' + (d.result.ok ? 'ECH record found' : (d.result.detail || 'no ECH record')), d.result.ok ? 'ok' : 'err');
+        return loadDns();
+      }).then(render).catch(function(err){ toast(err.message, 'err'); });
+      return;
+    }
+    if (act === 'revoke-sessions') {
+      if (!confirm('Revoke all admin sessions? You will be signed out.')) return;
+      api('/auth/revoke-sessions', { method:'POST', body:{} }).finally(function(){ location.reload(); }); return;
+    }
+    if (act === 'cf-test') {
+      api('/cloudflare/test', { method:'POST', body:{} }).then(function(d){
+        toast(d.ok ? 'Token active · ' + (d.accounts || []).length + ' account(s)' : 'Token check failed', d.ok ? 'ok' : 'err');
+      }).catch(function(err){ toast(err.message,'err'); }); return;
+    }
+    if (act === 'cf-disconnect') {
+      if (!confirm('Remove the stored Cloudflare token?')) return;
+      api('/cloudflare/token', { method:'DELETE' }).then(function(){ toast(t('saved'),'ok'); return loadCloudflare(); }).then(render).catch(function(err){ toast(err.message,'err'); }); return;
+    }
+    if (act === 'automation-run') {
+      api('/automation/' + encodeURIComponent(id) + '/run', { method:'POST', body:{} }).then(function(d){
+        toast(d.detail, 'ok'); return loadAutomation();
+      }).then(renderAutomation).catch(function(err){ toast(err.message,'err'); }); return;
+    }
+    if (act === 'automation-toggle') {
+      var enabled = el.getAttribute('data-enabled') === '1';
+      api('/automation/' + encodeURIComponent(id), { method:'PATCH', body:{ enabled: !enabled } }).then(function(){
+        toast(t('saved'),'ok'); return loadAutomation();
+      }).then(renderAutomation).catch(function(err){ toast(err.message,'err'); }); return;
+    }
+    if (act === 'refresh-data') { loadPage(S.page).then(render).catch(showError); return; }
   }
 
-  function testUserNodes(token) {
-    if (!token) return;
-    showToast(t('toast.testingNodes'), 'ok');
-    fetch(origin() + '/sub/' + token + '?target=raw&limit=6')
-      .then(function(res) { return res.text(); })
-      .then(function(text) {
-        var nodes = [];
-        var seen = {};
-        String(text || '').split(/\r?\n/).forEach(function(line) {
-          var match = line.match(/@\[?([0-9a-fA-F:.]+)\]?:(\d+)/);
-          if (!match) return;
-          var host = match[1];
-          var port = parseInt(match[2], 10) || 443;
-          var key = host + ':' + port;
-          if (seen[key] || host === '127.0.0.1') return;
-          seen[key] = true;
-          nodes.push({ host: host, port: port });
-        });
-        if (!nodes.length) { showToast(t('scan.none'), 'err'); return; }
-        return fetch(origin() + '/api/scanner/test-nodes', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ nodes: nodes.slice(0, 8) })
-        }).then(function(res) { return res.json(); }).then(function(data) {
-          showToast(data.message || t('toast.network'), data.success ? 'ok' : 'err');
-        });
-      })
-      .catch(function() { showToast(t('toast.network'), 'err'); });
-  }
-
-  function addCfDefaults(kind) {
-    var items = kind === 'ips'
-      ? (INITIAL_DATA.officialIps || []).concat(INITIAL_DATA.officialIpv6 || []).map(function(ip) { return { ip: ip, port: 443, name: ip }; })
-      : (INITIAL_DATA.directDomains || []).map(function(domain) { return { ip: domain, port: 443, name: domain }; });
-    if (!items.length) { showToast('لیست پیش‌فرض خالی است', 'err'); return; }
-    applyScanItems('yx', items).then(function(data) {
-      if (data && data.success) {
-        showToast((kind === 'ips' ? 'آی‌پی‌های پیش‌فرض CFnew' : 'دامنه‌های پیش‌فرض CFnew') + ' به yx اضافه شدند', 'ok');
-      }
-    });
-  }
-
-  function addNode(ip, port) {
-    return applyScanItems('yx', [{ ip: ip, port: Number(port) || 443, name: ip }]);
-  }
-
-  function useProxy(proxyUrl) {
-    if (!proxyUrl) { showToast('آدرس پروکسی نامعتبر است', 'err'); return; }
-    return applyScanItems('s', [{ proxy: proxyUrl }]);
-  }
-
-  function countryProxy(code) {
-    showPanel('scanner');
-    if ($('scanCountry')) $('scanCountry').value = code;
-    if ($('scanKind')) $('scanKind').value = 'proxy';
-    syncConditionalFields();
-    var status = $('scanStatus');
-    status.className = 'scan-status';
-    status.textContent = 'در حال یافتن سریع‌ترین پروکسی ' + code + ' ...';
-    $('scanBody').innerHTML = '<tr><td colspan="6" class="empty">در حال تست...</td></tr>';
-    scanRequest({ country: code, limit: 8, kind: 'proxy', family: 'any' })
-      .then(function(data) {
-        if (!data.success || !data.proxies || !data.proxies.length) {
-          status.className = 'scan-status err';
-          status.textContent = data.message || 'پروکسی زنده‌ای برای این کشور پیدا نشد.';
-          return;
-        }
-        renderScanRows(data.proxies);
-        status.textContent = 'سریع‌ترین پروکسی ' + code + ' (' + data.proxies[0].latencyMs + ' ms) به s وصل شد.';
-        return useProxy(data.proxies[0].proxy);
-      })
-      .catch(function() {
-        status.className = 'scan-status err';
-        status.textContent = 'خطای شبکه در دریافت پروکسی کشوری.';
-      });
-  }
-
-  function countryIp(code) {
-    showPanel('scanner');
-    if ($('scanCountry')) $('scanCountry').value = code;
-    if ($('scanKind')) $('scanKind').value = 'ip';
-    if ($('scanFamily')) $('scanFamily').value = 'any';
-    syncConditionalFields();
-    var status = $('scanStatus');
-    status.className = 'scan-status';
-    status.textContent = 'در حال تست آی‌پی‌های ثابت...';
-    $('scanBody').innerHTML = '<tr><td colspan="6" class="empty">در حال تست...</td></tr>';
-    scanRequest({ country: code, limit: 10, kind: 'ip', family: 'any' })
-      .then(function(data) {
-        if (!data.success || !data.proxies || !data.proxies.length) {
-          status.className = 'scan-status err';
-          status.textContent = data.message || 'آی‌پی سالمی پیدا نشد.';
-          return;
-        }
-        renderScanRows(data.proxies);
-        return applyScanItems('yx', data.proxies.slice(0, 3).map(function(p) { return { ip: p.ip, port: p.port, name: p.ip }; }))
-          .then(function() { status.textContent = 'آی‌پی‌های ثابت به yx اضافه شدند (سوییچ EPI را روشن نگه دارید).'; });
-      })
-      .catch(function() {
-        status.className = 'scan-status err';
-        status.textContent = 'خطای شبکه در تست آی‌پی‌ها.';
-      });
-  }
-
-  function savePassword() {
-    var oldPwd = ($('pwdOld').value || '').trim();
-    var newPwd = ($('pwdNew').value || '').trim();
-    var newPwd2 = ($('pwdNew2').value || '').trim();
-    if (newPwd.length < 4) { showToast('رمز جدید باید حداقل ۴ کاراکتر باشد', 'err'); return; }
-    if (newPwd !== newPwd2) { showToast('تکرار رمز جدید یکسان نیست', 'err'); return; }
-    fetch(origin() + '/api/admin/change-password', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ oldPassword: oldPwd, newPassword: newPwd })
-    })
-      .then(function(res) { return res.json(); })
-      .then(function(data) {
-        if (data.success) {
-          closeModal('passwordModal');
-          $('pwdOld').value = ''; $('pwdNew').value = ''; $('pwdNew2').value = '';
-          showToast('رمز مدیر تغییر کرد', 'ok');
-        } else {
-          showToast(data.message || 'خطا در تغییر رمز', 'err');
-        }
-      })
-      .catch(function() { showToast('خطای شبکه در تغییر رمز', 'err'); });
-  }
-
-  function logout() {
-    fetch(origin() + '/api/admin/logout', { method: 'POST' }).catch(function() {}).finally(function() {
-      window.location.href = '/';
-    });
-  }
-
-  function openModal(id) { var m = $(id); if (m) m.classList.add('is-open'); }
-  function closeModal(id) { var m = $(id); if (m) m.classList.remove('is-open'); }
-
-  function masterSub() { return origin() + '/sub/' + (ADMIN_PATH || ''); }
-
-  document.addEventListener('click', function(event) {
-    var tab = event.target.closest('[data-tab]');
-    if (tab) { showPanel(tab.getAttribute('data-tab')); return; }
-
-    var el = event.target.closest('[data-act]');
+  function loadConfigList(){
+    var user = S.selectedUser || (S.users[0] && S.users[0].id);
+    if (!user) return;
+    var el = document.getElementById('configList');
     if (!el) return;
-    var act = el.getAttribute('data-act');
+    api('/configurations?userId=' + encodeURIComponent(user)).then(function(d){
+      var list = d.configurations || [];
+      el.innerHTML = list.length ? list.map(function(c){
+        return '<div class="list-item"><div><strong>' + esc(c.protocol + ' · ' + c.transport + ' · ' + c.tlsMode) + '</strong>' +
+          '<div class="faint">' + esc(c.endpointId || '—') + ' · ' + esc(c.clientFormat) + ' · ' + esc(when(c.createdAt)) + '</div></div>' +
+          '<span>' + badge(String(c.score), c.valid ? 'ok' : 'err') + '</span></div>';
+      }).join('') : '<div class="faint">' + esc(t('noData')) + '</div>';
+    }).catch(function(err){ el.innerHTML = '<div class="faint">' + esc(err.message) + '</div>'; });
+  }
 
-    if (act === 'copy') { copyText(el.getAttribute('data-url') || '', 'لینک کپی شد'); }
-    else if (act === 'copy-master') { copyText(masterSub(), 'سابلینک اصلی کپی شد'); }
-    else if (act === 'open-create') { openModal('createModal'); }
-    else if (act === 'open-password') { openModal('passwordModal'); }
-    else if (act === 'open-multi') { showPanel('locations'); }
-    else if (act === 'close-modal') { closeModal(el.getAttribute('data-modal')); }
-    else if (act === 'create-user') { createUser(); }
-    else if (act === 'delete-user') { deleteUser(el.getAttribute('data-id')); }
-    else if (act === 'reset-user') { resetUser(el.getAttribute('data-id')); }
-    else if (act === 'reload-users') { reloadUsers(); }
-    else if (act === 'save-config') { saveSettings(); }
-    else if (act === 'reset-config') { resetConfig(); }
-    else if (act === 'save-password') { savePassword(); }
-    else if (act === 'logout') { logout(); }
-    else if (act === 'go-scan') { showPanel('scanner'); }
-    else if (act === 'go-settings') { showPanel('settings'); }
-    else if (act === 'run-scan') { runScan(); }
-    else if (act === 'add-node' || act === 'add-ip') { addNode(el.getAttribute('data-ip'), el.getAttribute('data-port')); }
-    else if (act === 'use-proxy') { useProxy(el.getAttribute('data-proxy')); }
-    else if (act === 'country-proxy') { countryProxy(el.getAttribute('data-code')); }
-    else if (act === 'country-ip') { countryIp(el.getAttribute('data-code')); }
-    else if (act === 'toggle-theme') { toggleTheme(); }
-    else if (act === 'toggle-lang') { toggleLang(); }
-    else if (act === 'add-cf-ips') { addCfDefaults('ips'); }
-    else if (act === 'add-cf-domains') { addCfDefaults('domains'); }
-    else if (act === 'copy-admin-path') { copyText('/' + ADMIN_PATH, 'مسیر مدیریت کپی شد'); }
-    else if (act === 'rotate-path') { rotatePath(); }
-    else if (act === 'test-nodes') { testUserNodes(el.getAttribute('data-user')); }
+  document.addEventListener('click', function(event){
+    var nav = event.target.closest('[data-nav]');
+    if (nav) { setPage(nav.getAttribute('data-nav')); return; }
+    var act = event.target.closest('[data-act]');
+    if (act) { event.preventDefault(); handleAction(act.getAttribute('data-act'), act); }
   });
 
-  document.addEventListener('click', function(event) {
-    if (event.target.classList && event.target.classList.contains('modal')) {
-      event.target.classList.remove('is-open');
+  document.addEventListener('submit', function(event){
+    var form = event.target;
+    if (form.id === 'modalForm') {
+      event.preventDefault();
+      if (!S.modalSubmit) return;
+      var buttons = form.querySelectorAll('button[type="submit"]');
+      buttons.forEach(function(btn){ btn.disabled = true; });
+      Promise.resolve(S.modalSubmit(formValues(form))).catch(function(err){
+        toast(err.message || String(err), 'err');
+      }).finally(function(){
+        buttons.forEach(function(btn){ btn.disabled = false; });
+      });
+      return;
     }
-  });
-
-  document.addEventListener('change', function(event) {
-    var target = event.target;
-    if (!target) return;
-    if (target.matches && target.matches('.switch input[data-key]')) {
-      var key = target.getAttribute('data-key');
-      if (key === 'frag' || key === 'ech') syncConditionalFields();
-    }
-    if (target.id === 'scanKind') syncConditionalFields();
-    if (target.id === 'dnsPreset') {
-      var dnsInput = document.querySelector('input[data-key="customDNS"]');
-      if (dnsInput && target.value !== 'custom') dnsInput.value = target.value;
-    }
-  });
-
-  function resetConfig() {
-    if (!confirm('همه تنظیمات به مقادیر پیش‌فرض بازگردد؟')) return;
-    api('/api/config', { method: 'POST', body: JSON.stringify({ _reset: true }) })
-      .then(function(data) {
-        if (data.success) {
-          state.config = data.config || {};
-          fillSettings(); renderMetrics();
-          showToast('تنظیمات بازنشانی شد', 'ok');
-        } else {
-          showToast(data.message || 'خطا در بازنشانی', 'err');
+    if (form.dataset.form === 'settings') {
+      event.preventDefault();
+      var section = form.getAttribute('data-section');
+      var values = formValues(form);
+      var payload = {};
+      var schema = (S.settings && S.settings.schema) || [];
+      schema.filter(function(f){ return f.section === section || (section === 'cloudflare' && f.key === 'cfAccountId'); }).forEach(function(field){
+        var raw = values[field.key];
+        if (field.type === 'boolean') payload[field.key] = raw ? 'yes' : 'no';
+        else if (field.type === 'multiselect') payload[field.key] = Array.isArray(raw) ? raw.join(',') : (raw || '');
+        else if (raw !== undefined) payload[field.key] = raw;
+      });
+      api('/settings', { method:'PUT', body:{ settings: payload } }).then(function(d){
+        toast(t('saved'), 'ok');
+        (d.warnings || []).forEach(function(w){ toast(w.message, 'err'); });
+        S.settings = d; return Promise.all([loadSettings(), loadOverview()]);
+      }).then(render).catch(function(err){
+        toast(err.message, 'err');
+        if (err.data && err.data.error && err.data.error.details) {
+          (err.data.error.details || []).forEach(function(detail){ toast((detail.field ? detail.field + ': ' : '') + detail.message, 'err'); });
         }
-      })
-      .catch(function() { showToast('خطای شبکه در بازنشانی', 'err'); });
-  }
+      });
+      return;
+    }
+    if (form.dataset.form === 'scan') {
+      event.preventDefault();
+      var values = formValues(form);
+      var levels = values.levels ? (Array.isArray(values.levels) ? values.levels : [values.levels]) : ['tcp'];
+      api('/scanner/scan', { method:'POST', body:{ targets:[{ host: values.host, port: Number(values.port) || 443, levels: levels }], levels: levels } }).then(function(d){
+        S.scanResult = d; render();
+      }).catch(function(err){ toast(err.message, 'err'); });
+      return;
+    }
+    if (form.dataset.form === 'change-password') {
+      event.preventDefault();
+      var v = formValues(form);
+      if (v.newPassword !== v.confirmPassword) { toast('Passwords do not match', 'err'); return; }
+      api('/auth/change-password', { method:'POST', body: v }).then(function(){ toast(t('saved'), 'ok'); form.reset(); })
+        .catch(function(err){ toast(err.message, 'err'); });
+      return;
+    }
+    if (form.dataset.form === 'cf-token') {
+      event.preventDefault();
+      var data = formValues(form);
+      api('/cloudflare/token', { method:'PUT', body: data }).then(function(){ toast(t('connected'), 'ok'); return loadCloudflare(); }).then(render).catch(function(err){ toast(err.message, 'err'); });
+      return;
+    }
+    if (form.dataset.form === 'cf-workers') {
+      event.preventDefault();
+      api('/cloudflare/workers', { method:'POST', body: formValues(form) }).then(function(d){
+        toast(d.deployment && d.deployment.found ? 'Worker deployed · ' + d.deployment.script : 'No matching Worker script found', d.deployment && d.deployment.found ? 'ok' : 'err');
+        if (d.scripts) toast(d.scripts.length + ' script(s) visible to this token', 'ok');
+      }).catch(function(err){ toast(err.message, 'err'); });
+      return;
+    }
+  });
 
+  document.addEventListener('keydown', function(event){
+    if (event.key === 'Escape') closeModal();
+  });
 
+  document.getElementById('themeBtn').addEventListener('click', function(){
+    S.theme = S.theme === 'dark' ? 'light' : S.theme === 'light' ? 'system' : 'dark';
+    applyChrome();
+  });
+  document.getElementById('langBtn').addEventListener('click', function(){
+    S.lang = S.lang === 'fa' ? 'en' : 'fa';
+    applyChrome();
+    render();
+  });
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(){ if (S.theme === 'system') applyChrome(); });
 
-  function tickClock() {
-    var d = new Date();
-    var txt = d.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' });
-    var chip = $('clockChip');
-    if (chip) chip.textContent = txt;
-  }
-
-  if (localStorage.getItem('mili_theme') === 'light') document.body.classList.add('light-mode');
-  applyLanguage();
-  renderUsers();
-  renderLocations();
-  fillSettings();
-  syncConditionalFields();
-  renderMetrics();
-  tickClock();
-  setInterval(tickClock, 30000);
-
-  var hash = (window.location.hash || '').replace('#', '');
-  if (hash && document.querySelector('[data-panel="' + hash + '"]')) showPanel(hash);
-</script>
-</body>
-</html>`);
-}
+  var initial = (location.hash || '').replace('#','');
+  if (pages.some(function(p){ return p.id === initial; })) S.page = initial;
+  applyChrome();
+  loading();
+  loadPage(S.page).then(render).catch(showError);
+})();
+`;

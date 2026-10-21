@@ -1,13 +1,19 @@
 {
   "name": "miliconfig",
-  "version": "3.1.0",
-  "description": "miliconfig v3.1 - Multi-user Cloudflare Workers & Pages Proxy Control Center with D1 Database & Advanced Obfuscation",
+  "version": "4.0.0",
+  "description": "MiliconfigOS v4.0 - Cloudflare Workers & D1 proxy configuration control center with verified protocol catalogs, subscription engine, health scanner and automated tests",
   "type": "module",
   "main": "src/index.js",
+  "engines": {
+    "node": ">=22.5"
+  },
   "scripts": {
+    "dev": "node scripts/dev-server.js",
     "build": "node scripts/build.js",
-    "obfuscate": "node scripts/build.js --obfuscate",
-    "test": "node scripts/test-worker.js",
+    "obfuscate": "node scripts/build.js",
+    "test": "node --test \"tests/*.test.js\"",
+    "test:watch": "node --test --watch \"tests/*.test.js\"",
+    "check:schema": "node scripts/check-schema.js",
     "deploy:worker": "wrangler deploy",
     "deploy:pages": "npm run build && wrangler pages deploy dist"
   },
@@ -18,9 +24,17 @@
     "cloudflare-d1",
     "vless",
     "trojan",
+    "shadowsocks",
     "xhttp",
-    "ech"
+    "ech",
+    "sing-box",
+    "clash"
   ],
-  "author": "miliconfig",
-  "license": "MIT"
+  "author": "Milad Jahani",
+  "license": "MIT",
+  "devDependencies": {
+    "acorn": "^8.14.0",
+    "javascript-obfuscator": "^4.1.1",
+    "terser": "^5.36.0"
+  }
 }

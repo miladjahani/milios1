@@ -12,7 +12,6 @@ import {
   DIRECT_DOMAINS,
   FALLBACK_PROXY_IPS,
   FRAGMENT_PRESETS,
-  HARDCODED_INFO_NODES,
   OFFICIAL_DIRECT_IPS,
   OFFICIAL_DIRECT_IPV6,
   isEnabledValue,
@@ -720,6 +719,39 @@ export async function generateUserNodesList(userOrConfig, workerHost, queryOverr
     }
   }
 
+  // Endpoints from the persistent v4 catalog are authoritative extra nodes:
+  // every enabled endpoint contributes nodes for its own protocol only, using
+  // its real host, port and display name. Nothing is invented for an endpoint
+  // that has not been added by the administrator.
+  const catalogEndpoints = (Array.isArray(queryOverrides.catalogEndpoints) ? queryOverrides.catalogEndpoints : [])
+    .slice()
+    // Administrator-added endpoints outrank the built-in seed addresses, then
+    // measured health, so a small per-user node cap never hides a real node
+    // behind the defaults.
+    .sort((a, b) => {
+      const manual = Number(b?.source === 'manual') - Number(a?.source === 'manual');
+      if (manual) return manual;
+      const health = Number(b?.healthScore || 0) - Number(a?.healthScore || 0);
+      if (health) return health;
+      return String(a?.name || '').localeCompare(String(b?.name || ''));
+    });
+  for (const endpoint of catalogEndpoints) {
+    if (!endpoint || endpoint.enabled === false) continue;
+    const host = normalizeNodeHost(endpoint.host);
+    if (!host) continue;
+    const source = [{
+      ip: host,
+      port: Number(endpoint.port) || 443,
+      isp: String(endpoint.name || host),
+      country: String(endpoint.country || '')
+    }];
+    const protocol = String(endpoint.protocol || 'vless').toLowerCase();
+    if (protocol === 'vless' && evEnabled) protoGroups.vless.push(...buildVlessLinks(source, userUuid, workerHost, cfg, namer, wkOverride));
+    if (protocol === 'trojan' && etEnabled) protoGroups.trojan.push(...buildTrojanLinks(source, userUuid, workerHost, cfg, namer, wkOverride));
+    if (protocol === 'xhttp' && exEnabled) protoGroups.xhttp.push(...buildXhttpLinks(source, userUuid, workerHost, cfg, namer));
+    if ((protocol === 'shadowsocks' || protocol === 'ss') && esEnabled) protoGroups.ss.push(...buildShadowsocksLinks(source, userUuid, workerHost, cfg, namer));
+  }
+
   const disablePreferred = cfg.yxby === 'yes' || nodeScope === 'origin';
   const enableNative = cfg.ena === 'yes' || nodeScope === 'origin';
 
@@ -801,8 +833,10 @@ export async function generateUserNodesList(userOrConfig, workerHost, queryOverr
   // اعمال دقیق نام‌گذاری number+miliconfig و سقف تعداد نودهای ساب‌لینک کاربر
   const finalized = finalizeMiliSubscriptionLinks(rotatedLinks, subNodeCount, BRAND_NAME);
 
-  // افزودن الزامی ۳ نود هاردکدشده اطلاع‌رسانی در صدر تمام ساب‌لینک‌ها
-  return [...HARDCODED_INFO_NODES, ...finalized];
+  // Only real, connectable nodes are returned. The legacy informational nodes
+  // were placeholder links (zero UUID, 127.0.0.1) and would have handed users
+  // configurations that can never connect.
+  return finalized;
 }
 
 // تشخیص خودکار کلاینت از User-Agent در صورت عدم ارسال پارامتر target
@@ -822,7 +856,7 @@ export function detectTargetFromRequest(request, url) {
   return 'base64';
 }
 
-export async function handleSubscriptionResponse(request, userOrConfig, url = null) {
+export async function handleSubscriptionResponse(request, userOrConfig, url = null, catalogEndpoints = []) {
   if (!url) url = new URL(request.url);
   const workerHost = url.hostname;
   const rawCfg = userOrConfig?.config ? userOrConfig.config : (userOrConfig || {});
@@ -851,7 +885,8 @@ export async function handleSubscriptionResponse(request, userOrConfig, url = nu
     proto: url.searchParams.get('proto') || '',
     country: url.searchParams.get('country') || '',
     scope: url.searchParams.get('scope') || userOrConfig?.nodeScope || 'all',
-    limit: url.searchParams.get('limit') !== null ? url.searchParams.get('limit') : undefined
+    limit: url.searchParams.get('limit') !== null ? url.searchParams.get('limit') : undefined,
+    catalogEndpoints: Array.isArray(catalogEndpoints) ? catalogEndpoints : []
   };
 
   const finalLinks = await generateUserNodesList(userOrConfig, workerHost, queryOverrides);

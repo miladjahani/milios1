@@ -1,95 +1,171 @@
-# miliconfig v3.1 — مرکز کنترل زیرساخت پروکسی روی Cloudflare Workers & Pages + D1
+# MiliconfigOS v4.0
 
-![Version](https://img.shields.io/badge/version-v3.1--D1-b5ff4d?style=flat-square&labelColor=0b140b)
-![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers%20%26%20Pages-84cc16?style=flat-square&labelColor=0b140b)
-![Cloudflare D1](https://img.shields.io/badge/Database-Cloudflare%20D1%20Auto--Migrate-a3e635?style=flat-square&labelColor=0b140b)
-![Obfuscation](https://img.shields.io/badge/Security-Advanced%20Obfuscation%20(Zero%201101)-b5ff4d?style=flat-square&labelColor=0b140b)
+An honest, auditable control plane for proxy configurations on **Cloudflare Workers + D1**.
+Built by **Milad Jahani** under the **miliconfig** brand.
 
-**زبان:** [فارسی](فارسی.md) | [English](#english-overview)
+MiliconfigOS generates VLESS / Trojan / Shadowsocks / xHTTP client configurations from a
+persistent endpoint catalog, validates every combination before it is delivered, serializes real
+sing-box / Clash / URI / Surge / Loon / Quantumult X output, scans endpoints with clearly labelled
+health levels, and measures traffic from its own Worker data plane only.
 
----
+It is **not** a mock dashboard. Every number, list and status in the panel comes from D1 rows,
+the Worker's own probe results, or an explicitly labelled "not available" state.
 
-## ویژگی‌های کلیدی نسخه `miliconfig v3.1`
-
-1. **معماری ماژولار چندفایلی (Multi-File Modular Architecture)**:
-   - دیگر یک اسکریپت تک‌فایلی شلوغ نیست؛ کدها در دایرکتری `src/` به تفکیک `config/`، `db/`، `core/`، `subscription/`، `api/` و `ui/` سازماندهی شده‌اند.
-   - همزمان فایل‌های باندل و مبهم‌سازی‌شده (`_worker.js`, `dist/_worker.js`, `public/_worker.js`, `少年你相信光吗`) به صورت خودکار تولید می‌شوند تا در هر روش استقراری بلافاصله کار کنند.
-
-2. **دیتابیس Cloudflare D1 بدون هیچ خطایی در استقرار دستی یا اتوماتیک**:
-   - **تشخیص خودکار بایندینگ D1**: فرقی نمی‌کند نام متغیر D1 را در کلودفلر `DB`، `D1`، `miliconfig` یا هر نام دیگری بگذارید؛ سیستم به صورت خودکار آن را شناسایی می‌کند.
-   - **ساخت خودکار جداول (Auto-Migration)**: نیازی به زدن دستورات SQL یا `wrangler d1 execute` نیست! در اولین درخواست، جداول `users`، `system_config`، `preferred_nodes`، `audit_logs` و `traffic_hourly` به صورت خودکار ساخته می‌شوند.
-   - **محافظ ضد خطای D1 و ضد خطای `Error 1101`**: حتی اگر قبل از اتصال D1 پروژه را به صورت دستی یا از گیت‌هاب مستقر کنید، برنامه کرش نمی‌کند و بدون خطای ۱۱۰۱ با حافظه پشتیبان کار می‌کند تا هر زمان که خواستید D1 را متصل نمایید.
-
-3. **مدیریت پیشرفته کاربران + کپی تمام تنظیمات پیش‌فرض کد پایه**:
-   - با کلیک روی دکمه **«+ کاربر جدید (پیشرفته)»** یا **«ساخت سریع کاربر»**، علاوه بر **نام کاربر (`username`)** و **تعداد نودها در ساب (`subNodeCount`)**، **تمام ۳۱ تنظیم پیش‌فرض کد پایه (`wk`, `ev`, `et`, `ex`, `ech`, `tp`, `customDNS`, `customECHDomain`, `alpn`, `d`, `p`, `yx`, `yxURL`, `s`, `homepage`, `scu`, `ena`, `epd`, `epi`, `egi`, `ae`, `rm`, `qj`, `dkby`, `yxby`, `ipv4`, `ipv6`, `ispMobile`, `ispUnicom`, `ispTelecom`, `jk`)** برای کاربر وجود دارد و قابل شخصی‌سازی است.
-
-4. **برندینگ `miliconfig` و نام‌گذاری کانفیگ‌ها به فرمت `number+miliconfig`**:
-   - تمامی کانفیگ‌های خروجی در همه کلاینت‌ها (v2rayNG, Streisand, Shadowrocket, Amnezia, Exclusive, Clash Meta/Mihomo, Sing-box/Hiddify, Surge, Loon, Quantumult X) دقیقاً با فرمت **`1+miliconfig`**، **`2+miliconfig`**، **`3+miliconfig`** تا **`N+miliconfig`** (بر اساس تعداد نودهای تعیین‌شده در تنظیمات کاربر) نام‌گذاری می‌شوند.
-
-5. **صفحه وضعیت اختصاصی برای ارسال به هر کاربر (`/status/{user_id}`)**:
-   - هر کاربر دارای یک لینک اختصاصی **پنجره وضعیت** است که می‌توانید مستقیماً برای مشتری ارسال کنید (شامل وضعیت حجم و انقضا، انتخاب محدوده نودها، سابلینک لوکیشن‌محور ۱۱ کشور، سابلینک اختصاصی ۱۶ کلاینت در ۵ خانواده، لینک دانلود کلاینت‌ها و کپی تکی کانفیگ‌ها).
+<p align="center">
+  <a href="#quick-start-local">Quick start</a> ·
+  <a href="docs/ARCHITECTURE.md">Architecture</a> ·
+  <a href="docs/API.md">API</a> ·
+  <a href="docs/DEPLOYMENT.md">Deployment</a> ·
+  <a href="docs/SECURITY.md">Security</a> ·
+  <a href="docs/COMPATIBILITY.md">Compatibility matrix</a> ·
+  <a href="docs/TESTING.md">Test report</a>
+</p>
 
 ---
 
-## راهنمای استقرار مستقیم از گیت‌هاب (Cloudflare Workers & Pages)
+## What actually works
 
-### روش اول: اتصال مستقیم گیت‌هاب به Cloudflare Workers
-1. این مخزن را در گیت‌هاب خود آپلود (Push) کنید.
-2. در پنل Cloudflare وارد **Workers & Pages** شوید -> **Create** -> **Workers** -> **Import a repository** را بزنید و مخزن گیت‌هاب را متصل کنید.
-3. پروژه به لطف فایل استاندارد `wrangler.toml` (`main = "src/index.js"`) بلافاصله بدون هیچ خطایی مستقر می‌شود!
-4. برای اتصال دیتابیس D1:
-   - در پنل کلودفلر از منوی **Storage & Databases -> D1 SQL Database** یک دیتابیس بسازید (مثلاً `miliconfig-db`).
-   - وارد تنظیمات Worker خود شوید -> **Settings -> Bindings -> Add -> D1 database** -> متغیر را `DB` بنامید و دیتابیس را انتخاب و Deploy کنید. (جداول به صورت خودکار ساخته می‌شوند!).
+| Area | Status | Where it is implemented |
+| --- | --- | --- |
+| First-run administrator setup, no default password | Working | `src/api/v1.js` (`/auth/setup`), `src/db/d1.js` |
+| PBKDF2-SHA256 password hashing, session cookies, revocation, login rate limiting | Working | `src/core/security.js`, `src/db/v4.js` |
+| Five-user hard limit, enforced transactionally in SQL | Working, covered by tests | `src/db/d1.js` (`INSERT … SELECT … WHERE COUNT(*) < 5`) |
+| Persistent user CRUD, quota, expiry, node scope, per-user UUID | Working | `src/api/v1.js`, `src/db/d1.js` |
+| Endpoint catalog (IPv4/IPv6/domain, protocol, transport, TLS, country, provider) | Working | `src/db/v4.js`, `src/api/v1.js` |
+| Endpoint checks with graded levels (syntax → DNS → TCP → TLS → HTTP → proxy) | Working, never claims more than it measured | `src/core/scanner.js`, `src/core/health.js` |
+| Configuration engine with validation, scoring, rejection reasons | Working | `src/core/engine.js` |
+| Subscription serializers (sing-box, Clash, URI, Surge, Loon, QuanX) | Working, tests per format | `src/subscription/converters.js` |
+| Per-user subscription tokens, rotation, revocation, quotas, expiry headers | Working | `src/api/v1.js`, `src/index.js` |
+| Traffic accounting from the Worker data plane | Working for proxied streams; panel visits excluded | `src/core/runtime.js`, `src/db/v4.js` |
+| DNS / TLS fingerprint / ECH catalogs, conflict detection | Working catalogs and rules; ECH is labelled conditional | `src/config/catalog.js`, `src/config/schema.js` |
+| Automation jobs (validation, expiry, health refresh, quota checks) with run history | Working | `src/db/v4.js`, `src/api/v1.js` |
+| Cloudflare token storage (AES-GCM), permission listing, deployment status | Working HTTP client; real API verification required to mark connected | `src/api/v1.js`, `src/core/security.js` |
+| Light / dark / system themes, RTL + LTR, reduced motion | Working | `src/ui/adminHtml.js`, `src/ui/loginHtml.js` |
+| Tests | 64 tests, all passing (`npm test`) | `tests/` |
 
-### روش دوم: اتصال مستقیم گیت‌هاب به Cloudflare Pages
-1. در پنل Cloudflare وارد **Workers & Pages -> Create -> Pages -> Connect to Git** شوید.
-2. مخزن گیت‌هاب خود را انتخاب کنید:
-   - **Build command**: `npm run build` (یا خالی بگذارید)
-   - **Build output directory**: `dist` (اگر Build command را خالی گذاشتید می‌توانید `/` یا `dist` یا `public` قرار دهید)
-3. پس از استقرار، از بخش **Settings -> Functions -> D1 database bindings** دیتابیس D1 خود را با نام `DB` متصل کنید.
+### Explicit non-claims
+
+- A configuration link is not proof of a working tunnel. The panel separates *generation*,
+  *endpoint reachability*, *protocol validation* and *measured traffic*.
+- Cloudflare Workers cannot run arbitrary native proxy cores, raw TCP listeners, or unrestricted
+  UDP relays. REALITY is therefore **not implemented**, and is not offered as a selectable mode.
+  ECH is offered only as client-side configuration where the data supports it, with warnings.
+- Geolocation shown for an endpoint is metadata entered by the administrator or provided by the
+  endpoint source; it is not a physical-server measurement.
+- Subscription fetches are counted separately from proxied bytes. They are never merged.
 
 ---
 
-## ساختار ماژولار پروژه
+## Quick start (local)
+
+Requires Node.js **22.5+** (the built-in SQLite module backs the local D1 adapter).
+
+```bash
+npm install            # optional: terser/acorn/javascript-obfuscator for the bundle
+npm run dev            # http://0.0.0.0:3000 with a persistent SQLite control plane
+```
+
+Open the printed URL, choose an administrator password (10+ characters, two character classes),
+and the panel opens at `/admin`. The local database lives in `.dev/miliconfig.sqlite`.
+
+```bash
+npm test               # 64 automated tests (node:test + real SQLite D1 adapter)
+npm run check:schema   # apply schema.sql + migrations/*.sql to a throwaway database
+npm run build          # dist/_worker.js, public/_worker.js, _worker.js, dist/worker.readable.js
+```
+
+The local server is a development harness: it runs the real Worker `fetch` handler, but the
+`cloudflare:sockets` proxy data plane only exists inside the Cloudflare runtime.
+
+## Deploy to Cloudflare
+
+```bash
+wrangler d1 create miliconfig-db          # copy the database id into wrangler.toml
+wrangler d1 execute miliconfig-db --remote --file schema.sql
+wrangler secret put MILI_ENCRYPTION_KEY   # recommended: 32+ random characters
+wrangler deploy
+```
+
+Open the deployed URL, complete the first-run setup, then sign in. Full instructions, Pages
+variant, CI/CD notes and rollback steps: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
+## Project layout
 
 ```text
 miliconfig/
 ├── src/
-│   ├── index.js                  # روتر اصلی Cloudflare Worker & Pages + محافظ ضد Error 1101
+│   ├── index.js                  # Worker entry: routing, login gateway, data plane, status pages
 │   ├── config/
-│   │   ├── defaults.js           # تمام ۳۱ تنظیم پیش‌فرض کد اصلی CFnew v3.1 + ثابت‌های miliconfig
-│   │   └── presets.js            # ۵ پریست ساخت سریع کاربر (ایران پرسرعت، مصرف سنگین، بین‌المللی و...)
-│   ├── db/
-│   │   └── d1.js                 # لایه دیتابیس Cloudflare D1 با Auto-Migration و تشخیص هوشمند بایندینگ
+│   │   ├── defaults.js           # 31 base-engine defaults, brand + user limit constants
+│   │   ├── catalog.js            # verified DNS / TLS-fingerprint / ECH / protocol catalogs
+│   │   ├── schema.js             # central settings schema, sanitisation, conflict detection
+│   │   ├── presets.js            # user presets
+│   │   └── sources.js            # endpoint provider sources (regional, upstream)
 │   ├── core/
-│   │   ├── runtime.js            # هسته پروکسی VLESS + Trojan + xhttp + SOCKS5/HTTP + احراز هویت چندکاربره D1
-│   │   └── utils.js              # نام‌گذار نودها (number+miliconfig)، رمزنگاری MD5/SHA224 خالص و ابزارها
+│   │   ├── engine.js             # combination builder, validation, scoring, run records
+│   │   ├── scanner.js            # graded probes (DNS, TCP, TLS, HTTP, ECH)
+│   │   ├── health.js             # scoring, labels, bounded concurrency
+│   │   ├── security.js           # PBKDF2, cookies, AES-GCM, password policy, CSRF helpers
+│   │   ├── runtime.js            # VLESS/Trojan/SS/xHTTP data plane + byte accounting
+│   │   └── utils.js              # node naming, UUID/URL helpers, parsers
+│   ├── db/
+│   │   ├── d1.js                 # binding detection, users, settings, audit, memory fallback
+│   │   └── v4.js                 # sessions, catalog, configs, subscriptions, usage, automation
 │   ├── subscription/
-│   │   ├── generator.js          # تولیدکننده ساب‌لینک چندکاربره با اعمال subNodeCount
-│   │   └── converters.js         # مبدل‌های داخلی Clash YAML، Sing-box JSON، Surge، Loon، QuanX و زنجیره خانگی
+│   │   ├── generator.js          # per-user node list from settings + endpoint catalog
+│   │   └── converters.js         # sing-box, Clash, Surge, Loon, Quantumult X serializers
 │   ├── api/
-│   │   └── handlers.js           # اندپوینت‌های REST API مدیریت کاربران، تنظیمات و نودها
+│   │   ├── v1.js                 # versioned API (/api/v1)
+│   │   └── handlers.js           # legacy API surface kept for existing integrations
 │   └── ui/
-│       ├── icons.js              # لوگوهای نئونی سپر و ابر miliconfig
-│       ├── loginHtml.js          # درگاه ورود
-│       ├── adminHtml.js          # پنل مدیریت کامل مطابق تصاویر ارسالی
-│       └── statusHtml.js         # صفحه وضعیت اختصاصی کاربر برای ارسال به مشتری
+│       ├── adminHtml.js          # desktop-style workspace: dashboard, users, catalog, settings…
+│       ├── loginHtml.js          # homepage gateway + blurred login dialog
+│       ├── statusHtml.js         # per-user subscription status page
+│       └── icons.js              # original SVG logo/icon set
 ├── scripts/
-│   ├── build.js                  # باندلر ماژولار و سازگارکننده خودکار Workers / Pages
-│   ├── obfuscate.js              # مبهم‌ساز پیشرفته ایمن برای کلودفلر (بدون خطای 1101)
-│   └── test-worker.js            # تست خودکار کامل
-├── migrations/
-│   └── 0001_init_miliconfig.sql  # فایل مایگریشن استاندارد D1
-├── schema.sql                    # اسکیمای SQL دیتابیس D1
-├── wrangler.toml                 # تنظیمات استقرار مستقیم Cloudflare
+│   ├── build.js                  # deterministic bundler → dist/_worker.js
+│   ├── obfuscate.js              # Workers-safe minifier/obfuscator
+│   ├── dev-server.js             # local Node harness with SQLite D1
+│   ├── check-schema.js           # schema + migration validation
+│   ├── test-worker.js            # legacy test entry point → node:test
+│   └── lib/                      # SQLite D1 adapter, sockets alias hook
+├── tests/                        # unit, integration and API tests
+├── migrations/                   # 0001 legacy schema, 0002 v4 control plane
+├── schema.sql                    # complete current D1 schema
+├── docs/                         # architecture, API, security, deployment, compatibility, test report
+├── wrangler.toml                 # Worker deployment
+├── wrangler.pages.toml           # Pages deployment variant
 └── package.json
 ```
 
----
+`snippets` and `edgetunnel…` are the original single-file upstream references that v4 replaced;
+they are kept for traceability and are not deployed.
 
-## English Overview
+## Environment variables
 
-**miliconfig v3.1** is a modular, multi-user Cloudflare Workers & Pages proxy control center powered by **Cloudflare D1** and built on top of the complete **CFnew v3.1** engine (VLESS, Trojan, xhttp, ECH, SOCKS5/HTTP outbound proxy, Residential Chain, and built-in Clash/Sing-box/Surge/QuanX/Loon converters).
-- **Brand & Node Naming**: All client subscription nodes are named `1+miliconfig`, `2+miliconfig`, ..., `N+miliconfig`.
-- **Per-User Node Count & Full Defaults**: Every user created via D1 inherits all 31 default settings of the base engine plus custom `username` and `subNodeCount`.
-- **Zero-Error D1 & 1101 Protection**: Automatic D1 binding detection, runtime table auto-migration, and Worker-safe AST obfuscation.
+| Name | Required | Purpose |
+| --- | --- | --- |
+| `DB` (D1 binding) | Yes in production | Cloudflare D1 database. Without it the panel refuses login unless `MILI_ALLOW_MEMORY=1`. |
+| `MILI_ENCRYPTION_KEY` | Recommended | AES-GCM key material for the stored Cloudflare token. Unset ⇒ token is stored base64-encoded and the UI reports it. |
+| `MILI_ALLOW_MEMORY` | Dev only | `1` allows the isolate-memory fallback when no D1 binding exists. |
+| `BRAND` | Optional | Display brand string in the Worker environment. |
+| `PORT` | Local dev | Port for `scripts/dev-server.js` (default 3000). |
+| `MILI_DEV_DB` | Local dev | Path to the SQLite file (default `.dev/miliconfig.sqlite`). |
+
+There are **no preconfigured application secrets**. No default administrator password, API token or
+Cloudflare credential is committed or accepted silently.
+
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md) — runtime split, data model, request flow
+- [API reference](docs/API.md) — `/api/v1` groups, auth, errors, examples
+- [Security](docs/SECURITY.md) — threat model, authentication, secrets, logging rules
+- [Compatibility matrix](docs/COMPATIBILITY.md) — what each protocol/format/runtime really supports
+- [Deployment](docs/DEPLOYMENT.md) — Workers, Pages, migrations, CI/CD, rollback, checklist
+- [Test report](docs/TESTING.md) — what ran, what it covered, what it cannot cover here
+- [Audit and defect report](docs/AUDIT.md) — original inventory, defects found, fixes applied
+- [Quality gate](docs/QUALITY-GATE.md) — item-by-item final verification
+
+## License
+
+MIT — see `package.json`. Brand, logo and interface are original to miliconfig.

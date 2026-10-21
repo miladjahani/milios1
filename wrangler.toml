@@ -1,24 +1,36 @@
 # ============================================================================
-# miliconfig v3.1 - پیکربندی استقرار مستقیم گیت‌هاب روی Cloudflare Workers & Pages
-# ============================================================================
-# توجه مهم برای جلوگیری از خطای استقرار D1:
-# ۱. به محض اتصال گیت‌هاب به Cloudflare Workers یا Pages، پروژه بدون هیچ خطایی مستقر می‌شود.
-# ۲. برای اتصال دیتابیس D1 از پنل کلودفلر:
-#    در بخش Settings -> Bindings -> Add -> D1 Database یک دیتابیس بسازید و متصل کنید.
-#    برنامه به صورت هوشمند هر نام متغیری (DB, D1, miliconfig و ...) را تشخیص داده و
-#    جداول را به صورت ۱۰۰٪ خودکار (Auto-Migration) در اولین درخواست می‌سازد!
+# miliconfigOS v4.0 - Cloudflare Worker deployment
+# Create the D1 database, paste its id below, then deploy with `wrangler deploy`.
+#   wrangler d1 create miliconfig-db
+# Optional secret (recommended): wrangler secret put MILI_ENCRYPTION_KEY
+# Without it the panel still runs, but provider tokens can only be stored
+# base64-encoded instead of AES-GCM encrypted, and the UI says so.
 # ============================================================================
 
 name = "miliconfig"
 main = "src/index.js"
-compatibility_date = "2024-09-23"
+compatibility_date = "2024-11-06"
+migrations_dir = "migrations"
+
+[observability]
+enabled = true
 
 [vars]
 BRAND = "miliconfig"
 
-# در صورت تمایل به معرفی D1 از طریق فایل wrangler.toml (اختیاری)،
-# خطوط زیر را از حالت کامنت خارج کرده و database_id خود را جایگزین کنید:
-# [[d1_databases]]
-# binding = "DB"
-# database_name = "miliconfig-db"
-# database_id = "YOUR-D1-DATABASE-UUID-HERE"
+# Cron Trigger for the automation engine. Jobs respect their own interval and
+# next_run_at, so a frequent tick is cheap; it never loops and never retries
+# forever. Remove this block if you prefer manual runs only.
+[triggers]
+crons = ["*/15 * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "miliconfig-db"
+database_id = "REPLACE-WITH-YOUR-D1-DATABASE-UUID"
+
+# Optional: bind a KV namespace if you run several isolates and want the
+# admin path cached consistently.
+# [[kv_namespaces]]
+# binding = "KV"
+# id = "REPLACE-WITH-YOUR-KV-NAMESPACE-ID"

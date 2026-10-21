@@ -6,3 +6,12 @@
 # Wrangler / tooling artifacts
 .wrangler/
 node_modules/
+
+# Local development database (scripts/dev-server.js)
+.dev/
+
+# Local environment overrides for wrangler dev
+.dev.vars
+
+# Freebuff preview runtime state
+.vly-run/

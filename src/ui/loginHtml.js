@@ -1,611 +1,416 @@
 // ============================================================================
-// miliconfig v3.1 - درگاه ورود با استتار nginx (الهام از edgetunnel)
-// صفحه اول دقیقاً «Welcome to nginx!» است؛ پس از ۳ ثانیه صفحه تار می‌شود و
-// پنجره ورود آرام روی آن ظاهر می‌شود. حالت روز/شب و زبان فارسی/انگلیسی هم دارد.
+// miliconfigOS v4.0 - Admin gateway
+// The configured homepage is shown first, then blurred while the login window
+// fades in. A persistent "skip" control keeps the 3-second sequence from
+// trapping anyone, and reduced-motion preferences skip the transition.
 // ============================================================================
 
-import { BRAND_NAME, BRAND_UPPER, VERSION } from '../config/defaults.js';
-import { FAVICON_DATA_URI, stripEmoji } from './icons.js';
+import { FAVICON_DATA_URI } from './icons.js';
+import { BRAND_NAME, VERSION } from '../config/defaults.js';
 
-const I18N = {
+const LOGIN_I18N = {
   fa: {
-    dir: 'rtl',
-    lang: 'فارسی',
-    switchLang: 'English',
-    loginTitle: 'ورود به مرکز مدیریت',
+    title: 'ورود مدیر',
     setupTitle: 'راه‌اندازی اولیه',
-    loginSub: 'درگاه امن مدیر به مرکز کنترل',
-    setupSub: 'تعیین رمز عبور مدیر برای اولین اجرا',
-    password: 'رمز عبور پنل مدیریت',
-    passwordPh: 'رمز عبور خود را وارد کنید...',
-    newPassword: 'رمز عبور جدید (حداقل ۴ کاراکتر)',
-    confirmPassword: 'تکرار رمز عبور',
-    loginBtn: 'ورود به مرکز مدیریت',
-    setupBtn: 'ذخیره رمز و راه‌اندازی پنل',
-    working: 'در حال بررسی...',
-    recovery: 'فراموشی رمز؟ بازیابی با UUID',
-    setupDone: 'پنل با موفقیت راه‌اندازی شد',
-    setupDoneHint: 'شناسه رندوم مدیریت شما (برای بازیابی رمز نگه دارید) — نیازی به وارد کردن آن نیست:',
-    copyId: 'کپی شناسه',
-    goPanel: 'ورود به صفحه مدیریت',
-    idCopied: 'کپی شد',
-    recoveryTitle: 'بازیابی رمز با UUID مدیر',
-    recoveryHint: 'مسیر مدیریت (UUID) را وارد کنید؛ مالکیت این مسیر یعنی دسترسی مدیر.',
-    uuidLabel: 'UUID / مسیر مدیریت',
-    uuidPh: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
-    recoverBtn: 'بازیابی رمز',
-    back: 'بازگشت به ورود',
-    themeLight: 'حالت روز',
-    themeDark: 'حالت شب',
-    errWrong: 'رمز عبور وارد شده اشتباه است.',
-    errMismatch: 'رمزهای عبور یکسان نیستند.',
-    errShort: 'رمز عبور باید حداقل ۴ کاراکتر باشد.',
-    errNetwork: 'خطای شبکه در برقراری ارتباط',
-    errUuid: 'UUID/مسیر مدیریت نامعتبر است.',
-    errFill: 'همه فیلدها را کامل کنید.'
+    subtitle: 'درگاه امن مرکز کنترل',
+    setupSubtitle: 'یک رمز عبور قوی برای مدیر تعیین کنید',
+    password: 'رمز عبور',
+    newPassword: 'رمز عبور جدید',
+    confirm: 'تکرار رمز عبور',
+    login: 'ورود به مرکز کنترل',
+    setup: 'ذخیره رمز و ساخت حساب مدیر',
+    working: 'در حال بررسی…',
+    skip: 'ورود مدیر',
+    hint: 'حداقل ۱۰ کاراکتر و حداقل دو نوع نویسه (حرف، رقم، نماد).',
+    policy: 'رمز عبور حداقل ۱۰ کاراکتر باشد و حداقل دو نوع نویسه داشته باشد.',
+    mismatch: 'رمزهای عبور یکسان نیستند.',
+    wrong: 'رمز عبور نادرست است.',
+    network: 'خطای شبکه؛ دوباره تلاش کنید.',
+    done: 'پنل آماده است',
+    doneHint: 'این شناسه مسیر مدیریت است؛ در جای امن نگه دارید.',
+    open: 'باز کردن پنل مدیریت',
+    copy: 'کپی شناسه',
+    copied: 'کپی شد',
+    theme: 'پوسته',
+    light: 'روشن', dark: 'تیره', system: 'سیستم',
+    lang: 'English',
+    customHomepage: 'صفحه خانه',
+    back: 'بازگشت',
+    dbMissing: 'پایگاه‌داده Cloudflare D1 متصل نیست. برای فعال‌سازی احراز هویت، بایندینگ D1 با نام DB را اضافه کنید.'
   },
   en: {
-    dir: 'ltr',
-    lang: 'English',
-    switchLang: 'فارسی',
-    loginTitle: 'Admin Login',
-    setupTitle: 'First Run Setup',
-    loginSub: 'Secure gateway to the control center',
-    setupSub: 'Set the admin password for the first run',
-    password: 'Admin panel password',
-    passwordPh: 'Enter your password...',
-    newPassword: 'New password (min 4 characters)',
-    confirmPassword: 'Confirm password',
-    loginBtn: 'Sign in',
-    setupBtn: 'Save password & launch',
-    working: 'Checking...',
-    recovery: 'Forgot password? Recover with UUID',
-    setupDone: 'Panel is ready',
-    setupDoneHint: 'Your random admin ID (keep it for password recovery) — you never need to type it:',
-    copyId: 'Copy ID',
-    goPanel: 'Open admin panel',
-    idCopied: 'Copied',
-    recoveryTitle: 'Recover password with admin UUID',
-    recoveryHint: 'Enter the admin path (UUID). Owning this path proves admin access.',
-    uuidLabel: 'UUID / admin path',
-    uuidPh: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
-    recoverBtn: 'Recover password',
-    back: 'Back to login',
-    themeLight: 'Light mode',
-    themeDark: 'Dark mode',
-    errWrong: 'Incorrect password.',
-    errMismatch: 'Passwords do not match.',
-    errShort: 'Password must be at least 4 characters.',
-    errNetwork: 'Network error while connecting',
-    errUuid: 'Invalid admin UUID/path.',
-    errFill: 'Please fill all fields.'
+    title: 'Admin sign in',
+    setupTitle: 'First-run setup',
+    subtitle: 'Secure control center gateway',
+    setupSubtitle: 'Choose a strong administrator password',
+    password: 'Password',
+    newPassword: 'New password',
+    confirm: 'Confirm password',
+    login: 'Enter control center',
+    setup: 'Save password and create admin',
+    working: 'Checking…',
+    skip: 'Admin sign in',
+    hint: 'At least 10 characters and two character classes (letters, digits, symbols).',
+    policy: 'Password must be at least 10 characters and use two character classes.',
+    mismatch: 'Passwords do not match.',
+    wrong: 'Incorrect password.',
+    network: 'Network error; try again.',
+    done: 'Panel is ready',
+    doneHint: 'This is your admin path. Keep it somewhere safe.',
+    open: 'Open admin panel',
+    copy: 'Copy path',
+    copied: 'Copied',
+    theme: 'Theme',
+    light: 'Light', dark: 'Dark', system: 'System',
+    lang: 'فارسی',
+    customHomepage: 'Homepage',
+    back: 'Back',
+    dbMissing: 'Cloudflare D1 is not bound. Add a D1 binding named DB before authentication can work.'
   }
 };
 
 export function renderLoginGatewayHtml(options = {}) {
   const initialized = options.initialized !== false;
-  const customPath = options.customPath || '';
-  const recover = options.recover === true;
-  const adminHint = String(customPath || '').trim();
+  const homepage = String(options.homepage || 'https://nginx.com');
+  const defaultLang = 'fa';
+  const boot = {
+    initialized,
+    lang: defaultLang,
+    homepage,
+    version: VERSION,
+    databaseAvailable: options.databaseAvailable !== false
+  };
 
-  return stripEmoji(`<!DOCTYPE html>
-<html lang="fa" dir="rtl">
+  return `<!DOCTYPE html>
+<html lang="fa" dir="rtl" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Welcome to nginx!</title>
+<meta name="robots" content="noindex, nofollow">
+<title>${initialized ? 'Welcome to nginx!' : 'MiliconfigOS · Setup'}</title>
 <link rel="icon" href="${FAVICON_DATA_URI}">
+<script>
+(function(){
+  try {
+    var t = localStorage.getItem('mili.theme') || 'system';
+    var dark = t === 'dark' || (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    var l = localStorage.getItem('mili.lang');
+    if (l === 'en' || l === 'fa') { document.documentElement.lang = l; document.documentElement.dir = l === 'fa' ? 'rtl' : 'ltr'; }
+  } catch (e) {}
+})();
+</script>
 <style>
-  * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; min-height: 100%; }
-  body {
-    font-family: Arial, Helvetica, sans-serif;
-    background: #ffffff;
-    color: #333333;
-    min-height: 100vh;
-    transition: background 0.6s ease, color 0.6s ease, filter 0.9s ease;
-    overflow-x: hidden;
-  }
-  .nginx-page {
-    max-width: 680px;
-    margin: 0 auto;
-    padding: 70px 24px 40px;
-    text-align: center;
-    transition: filter 0.9s ease, opacity 0.9s ease, transform 0.9s ease;
-  }
-  .nginx-logo { width: 96px; height: 96px; margin: 0 auto 26px; display: block; }
-  .nginx-page h1 {
-    font-size: 38px;
-    font-weight: 700;
-    color: #333;
-    margin: 0 0 18px;
-    letter-spacing: -0.5px;
-  }
-  .nginx-page p {
-    font-size: 18px;
-    line-height: 1.7;
-    color: #555;
-    margin: 12px auto;
-    max-width: 540px;
-  }
-  .nginx-page .thanks { color: #777; font-size: 16px; margin-top: 26px; }
-  .nginx-foot {
-    margin-top: 46px;
-    padding-top: 18px;
-    border-top: 1px solid #e6e6e6;
-    font-size: 13px;
-    color: #999;
-  }
-  body.is-veiled { background: #06090b; }
-  body.is-veiled .nginx-page {
-    filter: blur(7px) brightness(0.62);
-    opacity: 0.42;
-    transform: scale(1.02);
-    pointer-events: none;
-    user-select: none;
-  }
-
-  /* ---------- login overlay ---------- */
-  .gate {
-    position: fixed;
-    inset: 0;
-    z-index: 20;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 22px;
-    opacity: 0;
-    visibility: hidden;
-    transition: opacity 0.9s ease, visibility 0s linear 0.9s;
-  }
-  .gate.is-visible {
-    opacity: 1;
-    visibility: visible;
-    transition: opacity 0.9s ease, visibility 0s;
-  }
-  .gate::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background:
-      radial-gradient(circle at 18% 18%, rgba(181, 255, 77, 0.12), transparent 46%),
-      radial-gradient(circle at 82% 82%, rgba(0, 240, 255, 0.1), transparent 46%),
-      rgba(4, 7, 9, 0.86);
-    backdrop-filter: blur(14px);
-  }
-  .card {
-    position: relative;
-    width: min(430px, 100%);
-    border-radius: 20px;
-    border: 1px solid rgba(181, 255, 77, 0.26);
-    background: rgba(10, 16, 13, 0.94);
-    box-shadow: 0 30px 70px rgba(0, 0, 0, 0.6);
-    overflow: hidden;
-    color: #e9f3e2;
-    transform: translateY(18px) scale(0.97);
-    transition: transform 0.9s cubic-bezier(0.16, 1, 0.3, 1);
-    direction: rtl;
-    text-align: right;
-  }
-  .gate.is-visible .card { transform: none; }
-  .card-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    padding: 12px 15px;
-    border-bottom: 1px solid rgba(181, 255, 77, 0.16);
-    background: linear-gradient(90deg, rgba(181, 255, 77, 0.08), transparent 60%);
-  }
-  .dots { display: inline-flex; gap: 6px; }
-  .dots i { width: 9px; height: 9px; border-radius: 50%; display: block; }
-  .dots i:nth-child(1) { background: #ff6b6b; }
-  .dots i:nth-child(2) { background: #ffce5c; }
-  .dots i:nth-child(3) { background: #b5ff4d; }
-  .head-tools { display: inline-flex; gap: 6px; align-items: center; }
-  .mini-btn {
-    border: 1px solid rgba(181, 255, 77, 0.24);
-    background: rgba(255, 255, 255, 0.03);
-    color: #cfe3bf;
-    border-radius: 999px;
-    padding: 4px 10px;
-    font-size: 0.72rem;
-    cursor: pointer;
-    font-family: inherit;
-  }
-  .mini-btn:hover { color: #b5ff4d; border-color: rgba(181, 255, 77, 0.5); }
-  .card-body { padding: 26px 24px 24px; }
-  .brand-line { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
-  .brand-mark {
-    width: 44px; height: 44px; border-radius: 13px;
-    border: 1px solid rgba(181, 255, 77, 0.45);
-    background: rgba(181, 255, 77, 0.1);
-    display: flex; align-items: center; justify-content: center;
-    color: #b5ff4d; flex: none;
-  }
-  .brand-mark svg { width: 26px; height: 26px; }
-  .brand-name { font-size: 1.02rem; font-weight: 800; letter-spacing: 0.3px; color: #f2fbe9; }
-  .brand-sub { font-size: 0.74rem; color: #8fa485; margin-top: 3px; }
-  .field { margin-bottom: 14px; }
-  .field label { display: block; font-size: 0.78rem; color: #9db193; margin-bottom: 7px; font-weight: 600; }
-  .field input {
-    width: 100%;
-    padding: 11px 13px;
-    border-radius: 11px;
-    border: 1px solid rgba(181, 255, 77, 0.2);
-    background: rgba(4, 8, 6, 0.85);
-    color: #eaf6e0;
-    font-size: 0.92rem;
-    font-family: inherit;
-    outline: none;
-    transition: 0.18s;
-  }
-  .field input:focus { border-color: #b5ff4d; box-shadow: 0 0 0 3px rgba(181, 255, 77, 0.12); }
-  .field input[dir="ltr"] { text-align: left; }
-  .cta {
-    width: 100%;
-    margin-top: 6px;
-    padding: 12px 16px;
-    border: 0;
-    border-radius: 12px;
-    background: linear-gradient(180deg, #c7ff72, #9adf39);
-    color: #0c1407;
-    font-weight: 800;
-    font-size: 0.92rem;
-    font-family: inherit;
-    cursor: pointer;
-    box-shadow: 0 10px 26px rgba(181, 255, 77, 0.22);
-    transition: 0.18s;
-  }
-  .cta:hover { filter: brightness(1.05); transform: translateY(-1px); }
-  .cta:disabled { opacity: 0.6; cursor: not-allowed; }
-  .ghost-link {
-    display: inline-block;
-    margin-top: 14px;
-    color: #79d9c9;
-    font-size: 0.76rem;
-    cursor: pointer;
-    text-decoration: none;
-    background: none;
-    border: 0;
-    font-family: inherit;
-    padding: 0;
-  }
-  .ghost-link:hover { text-decoration: underline; }
-  .err {
-    display: none;
-    margin: 0 0 12px;
-    padding: 9px 11px;
-    border-radius: 10px;
-    border: 1px solid rgba(255, 98, 98, 0.5);
-    background: rgba(255, 98, 98, 0.1);
-    color: #ffb3b3;
-    font-size: 0.78rem;
-    text-align: center;
-  }
-  .hint {
-    margin-top: 14px;
-    font-size: 0.72rem;
-    line-height: 1.8;
-    color: #7d9074;
-    border-top: 1px dashed rgba(181, 255, 77, 0.14);
-    padding-top: 12px;
-  }
-  .hidden { display: none !important; }
-  .mono-id {
-    font-family: ui-monospace, Menlo, monospace;
-    font-size: 0.8rem;
-    padding: 10px 12px;
-    border-radius: 10px;
-    border: 1px dashed rgba(181, 255, 77, 0.4);
-    background: rgba(181, 255, 77, 0.07);
-    color: #d8ffb0;
-    word-break: break-all;
-  }
-  body.light-mode .mono-id { color: #0f5132; border-color: rgba(5, 150, 105, 0.45); background: rgba(5, 150, 105, 0.07); }
-  body.light-mode { background: #eef2f7; color: #1f2937; }
-  body.light-mode .gate::before {
-    background:
-      radial-gradient(circle at 18% 18%, rgba(5, 150, 105, 0.12), transparent 46%),
-      radial-gradient(circle at 82% 82%, rgba(2, 132, 199, 0.1), transparent 46%),
-      rgba(241, 245, 249, 0.9);
-  }
-  body.light-mode .card {
-    background: rgba(255, 255, 255, 0.96);
-    border-color: rgba(5, 150, 105, 0.3);
-    color: #0f172a;
-  }
-  body.light-mode .brand-name { color: #0f172a; }
-  body.light-mode .field input { background: #f8fafc; color: #0f172a; border-color: rgba(5, 150, 105, 0.3); }
-  body.light-mode .mini-btn { color: #475569; border-color: rgba(5, 150, 105, 0.3); }
-  body.light-mode .hint { color: #64748b; }
-  .card[dir="ltr"] { direction: ltr; text-align: left; }
+:root{
+  --font:"Vazirmatn","Segoe UI",system-ui,-apple-system,"Noto Sans Arabic",sans-serif;
+  --accent:#34d399; --accent-2:#22d3ee; --accent-ink:#052e22; --accent-soft:rgba(52,211,153,.14);
+}
+html[data-theme="dark"]{
+  --bg:#050b08; --surface:#0b1712; --surface-2:#0f2018; --border:rgba(148,163,184,.18);
+  --border-strong:rgba(148,163,184,.32); --text:#e7f4ec; --muted:#8ca79a; --faint:#5c7568;
+  --input:#08130e; --shadow:0 30px 80px rgba(0,0,0,.55); color-scheme:dark;
+}
+html[data-theme="light"]{
+  --bg:#eef4f0; --surface:#ffffff; --surface-2:#f5f9f6; --border:rgba(15,42,30,.12);
+  --border-strong:rgba(15,42,30,.22); --text:#0d2118; --muted:#5c7268; --faint:#8b9d93;
+  --input:#f9fcfa; --shadow:0 24px 60px rgba(15,42,30,.16); color-scheme:light;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;font-family:var(--font);background:var(--bg);color:var(--text);overflow:hidden}
+.frame{position:fixed;inset:0;background:var(--bg)}
+.homepage{position:absolute;inset:0;width:100%;height:100%;border:0;background:#fff;transition:filter .9s ease, transform .9s ease, opacity .9s ease}
+body.veiled .homepage{filter:blur(9px) brightness(.55) saturate(.9);transform:scale(1.02);opacity:.55}
+.scrim{position:absolute;inset:0;background:
+  radial-gradient(900px 500px at 15% 10%, rgba(52,211,153,.16), transparent 60%),
+  radial-gradient(800px 500px at 90% 90%, rgba(34,211,238,.12), transparent 60%),
+  linear-gradient(180deg, rgba(2,8,5,.15), rgba(2,8,5,.65));
+  opacity:0;transition:opacity .9s ease;pointer-events:none}
+body.veiled .scrim{opacity:1}
+.topbar{position:absolute;inset-block-start:0;inset-inline:0;display:flex;justify-content:space-between;align-items:center;padding:16px 20px;z-index:5}
+.brand{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:12px;background:rgba(6,14,10,.55);border:1px solid var(--border);backdrop-filter:blur(8px);color:#eaf6ee;font-size:.8rem}
+html[data-theme="light"] .brand{background:rgba(255,255,255,.72);color:#0d2118}
+.brand svg{width:26px;height:26px}
+.brand b{font-weight:800;letter-spacing:.2px}
+.brand span{color:var(--muted);font-size:.68rem}
+.tools{display:flex;gap:8px}
+.tools button{
+  border:1px solid var(--border);background:rgba(6,14,10,.55);color:#dcece2;border-radius:999px;
+  padding:6px 11px;font:inherit;font-size:.72rem;cursor:pointer;backdrop-filter:blur(8px);
+}
+html[data-theme="light"] .tools button{background:rgba(255,255,255,.72);color:#0d2118}
+.tools button:hover{border-color:var(--accent);color:var(--accent)}
+.skip{
+  position:absolute;inset-block-end:18px;inset-inline-start:50%;transform:translateX(-50%);
+  z-index:6;border:1px solid var(--border-strong);background:rgba(6,14,10,.6);color:#dcece2;
+  border-radius:999px;padding:8px 18px;font:inherit;font-size:.76rem;cursor:pointer;backdrop-filter:blur(8px);
+}
+html[dir="rtl"] .skip{transform:translateX(50%)}
+html[data-theme="light"] .skip{background:rgba(255,255,255,.8);color:#0d2118}
+.skip:hover{border-color:var(--accent);color:var(--accent)}
+.gate{
+  position:absolute;inset:0;z-index:10;display:flex;align-items:center;justify-content:center;padding:22px;
+  opacity:0;visibility:hidden;transition:opacity .75s ease, visibility 0s linear .75s;
+}
+.gate.visible{opacity:1;visibility:visible;transition:opacity .75s ease, visibility 0s}
+html[data-reduced="1"] .gate,html[data-reduced="1"] .homepage{transition:none}
+.card{
+  width:min(440px,100%);background:var(--surface);border:1px solid var(--border-strong);border-radius:18px;
+  box-shadow:var(--shadow);overflow:hidden;transform:translateY(16px) scale(.975);transition:transform .75s cubic-bezier(.16,1,.3,1);
+  position:relative;
+}
+.gate.visible .card{transform:none}
+.card::before{content:"";position:absolute;inset-block-start:0;inset-inline:0;height:3px;background:linear-gradient(90deg,var(--accent),var(--accent-2))}
+.card-head{display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--border);background:linear-gradient(90deg,var(--accent-soft),transparent 60%)}
+.dots{display:inline-flex;gap:6px}.dots i{width:9px;height:9px;border-radius:50%;display:block}
+.dots i:nth-child(1){background:#ff6464}.dots i:nth-child(2){background:#f5c451}.dots i:nth-child(3){background:#4ade80}
+.head-tag{font-size:.68rem;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+.card-body{padding:24px 22px 22px}
+.brand-line{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+.logo{width:46px;height:46px;flex:none}
+.brand-line h1{margin:0;font-size:1.02rem;letter-spacing:.01em}
+.brand-line p{margin:2px 0 0;color:var(--muted);font-size:.74rem}
+.err{display:none;margin-bottom:12px;padding:9px 11px;border-radius:10px;border:1px solid rgba(239,68,68,.5);background:rgba(239,68,68,.1);color:#fca5a5;font-size:.76rem;line-height:1.6}
+html[data-theme="light"] .err{color:#b91c1c}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:.75rem;color:var(--muted);margin-bottom:6px;font-weight:600}
+.field input{width:100%;padding:11px 12px;border-radius:11px;border:1px solid var(--border-strong);background:var(--input);color:var(--text);font:inherit;font-size:.88rem;outline:none;direction:ltr;text-align:left}
+.field input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.cta{width:100%;margin-top:6px;padding:11px 16px;border:0;border-radius:11px;background:linear-gradient(180deg,var(--accent),var(--accent-2));color:var(--accent-ink);font:inherit;font-weight:800;font-size:.86rem;cursor:pointer}
+.cta:hover{filter:brightness(1.05)}
+.cta:disabled{opacity:.6;cursor:not-allowed}
+.hint{margin-top:14px;padding-top:12px;border-top:1px dashed var(--border);font-size:.7rem;line-height:1.8;color:var(--faint)}
+.hidden{display:none!important}
+.mono{font-family:ui-monospace,Menlo,monospace;font-size:.76rem;padding:10px 12px;border-radius:9px;border:1px dashed var(--border-strong);background:var(--surface-2);word-break:break-all;direction:ltr;text-align:left}
+.ghost{display:inline-block;margin-top:12px;background:none;border:0;color:var(--accent);font:inherit;font-size:.74rem;cursor:pointer;padding:0}
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+@media(max-width:520px){
+  .card-body{padding:20px 16px 18px}
+  .topbar{padding:10px 12px}
+  .brand span{display:none}
+}
 </style>
 </head>
 <body>
-  <div class="nginx-page" id="nginxPage">
-    <svg class="nginx-logo" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <rect width="128" height="128" rx="18" fill="#009639"/>
-      <path d="M34 94V34l60 60V34" fill="none" stroke="#fff" stroke-width="11" stroke-linejoin="round" stroke-linecap="round"/>
+<div class="frame">
+  <iframe class="homepage" id="homepage" src="/__homepage" title="Homepage" tabindex="-1" referrerpolicy="no-referrer"></iframe>
+  <div class="scrim"></div>
+</div>
+
+<div class="topbar">
+  <div class="brand">
+    <svg viewBox="0 0 48 48" aria-hidden="true">
+      <path d="M24 4l15 5.5v12.8C39 33 32.6 40 24 44 15.4 40 9 33 9 22.3V9.5z" fill="rgba(52,211,153,.16)" stroke="#34d399" stroke-width="2.2"/>
+      <circle cx="24" cy="22" r="2.6" fill="#34d399"/>
+      <circle cx="16" cy="16" r="2" fill="#22d3ee"/><circle cx="32" cy="16" r="2" fill="#22d3ee"/>
+      <circle cx="17" cy="29" r="2" fill="#22d3ee"/><circle cx="31" cy="29" r="2" fill="#22d3ee"/>
     </svg>
-    <h1>Welcome to nginx!</h1>
-    <p>If you see this page, the nginx web server is successfully installed and working. Further configuration is required.</p>
-    <p>For online documentation and support please refer to <span>nginx.org</span>.<br>Commercial support is available at <span>nginx.com</span>.</p>
-    <p class="thanks">Thank you for using nginx.</p>
-    <div class="nginx-foot">Server at ${BRAND_UPPER}.${VERSION.replace(/\./g, '-').toLowerCase()} Port 80</div>
+    <div><b>${BRAND_NAME}OS</b><br><span>${VERSION} · Milad Jahani</span></div>
   </div>
+  <div class="tools">
+    <button type="button" id="langBtn"></button>
+    <button type="button" id="themeBtn"></button>
+  </div>
+</div>
 
-  <div class="gate" id="gate">
-    <div class="card" id="card" dir="rtl">
-      <div class="card-head">
-        <span class="dots"><i></i><i></i><i></i></span>
-        <div class="head-tools">
-          <button class="mini-btn" type="button" id="langBtn">English</button>
-          <button class="mini-btn" type="button" id="themeBtn">حالت روز</button>
-        </div>
+<button class="skip" id="skipBtn" type="button"></button>
+
+<div class="gate" id="gate">
+  <div class="card" role="dialog" aria-modal="true" aria-labelledby="gateTitle">
+    <div class="card-head"><span class="dots"><i></i><i></i><i></i></span><span class="head-tag">secure gateway</span></div>
+    <div class="card-body">
+      <div class="brand-line">
+        <svg class="logo" viewBox="0 0 48 48" aria-hidden="true">
+          <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#34d399"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs>
+          <path d="M24 4l15 5.5v12.8C39 33 32.6 40 24 44 15.4 40 9 33 9 22.3V9.5z" fill="none" stroke="url(#lg)" stroke-width="2.2"/>
+          <path d="M17 22l4.5 4.5L32 17" fill="none" stroke="url(#lg)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <div><h1 id="gateTitle"></h1><p id="gateSubtitle"></p></div>
       </div>
-      <div class="card-body">
-        <div class="brand-line">
-          <div class="brand-mark">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l7 3v6c0 4.2-2.9 7.8-7 9-4.1-1.2-7-4.8-7-9V5z"/><path d="M9 12l2 2 4-4"/></svg>
-          </div>
-          <div>
-            <div class="brand-name">${BRAND_NAME} OS</div>
-            <div class="brand-sub" id="brandSub"></div>
-          </div>
+
+      <div class="err" id="errBox" role="alert"></div>
+      <div class="err" id="dbBox" role="alert" style="display:none;border-color:rgba(245,158,11,.5);background:rgba(245,158,11,.1);color:#fbbf24"></div>
+
+      <form id="loginForm" class="${initialized ? '' : 'hidden'}">
+        <div class="field">
+          <label for="password" id="lblPassword"></label>
+          <input type="password" id="password" autocomplete="current-password" required>
         </div>
+        <button class="cta" type="submit" id="loginBtn"></button>
+      </form>
 
-        <div class="err" id="errBox"></div>
-
-        <form id="loginForm" class="${initialized && !recover ? '' : 'hidden'}" onsubmit="handleLogin(event)">
-          <div class="field">
-            <label id="lblPassword"></label>
-            <input type="password" id="pwdInput" dir="ltr" autocomplete="current-password" required>
-          </div>
-          <button type="submit" class="cta" id="loginBtn"></button>
-          <button type="button" class="ghost-link" id="recoverLink" onclick="showRecover()"></button>
-        </form>
-
-        <form id="setupForm" class="${initialized ? 'hidden' : ''}" onsubmit="handleSetup(event)">
-          <div class="field">
-            <label id="lblNewPassword"></label>
-            <input type="password" id="newPwd" dir="ltr" autocomplete="new-password" required>
-          </div>
-          <div class="field">
-            <label id="lblConfirmPassword"></label>
-            <input type="password" id="confirmPwd" dir="ltr" autocomplete="new-password" required>
-          </div>
-          <button type="submit" class="cta" id="setupBtn"></button>
-        </form>
-
-        <div id="doneCard" class="hidden">
-          <div class="field">
-            <label id="lblDone"></label>
-            <div class="mono-id" id="doneId" dir="ltr"></div>
-          </div>
-          <button type="button" class="cta" id="goPanelBtn"></button>
-          <button type="button" class="ghost-link" id="copyIdBtn"></button>
+      <form id="setupForm" class="${initialized ? 'hidden' : ''}">
+        <div class="field">
+          <label for="newPassword" id="lblNewPassword"></label>
+          <input type="password" id="newPassword" autocomplete="new-password" minlength="10" required>
         </div>
+        <div class="field">
+          <label for="confirmPassword" id="lblConfirm"></label>
+          <input type="password" id="confirmPassword" autocomplete="new-password" minlength="10" required>
+        </div>
+        <button class="cta" type="submit" id="setupBtn"></button>
+      </form>
 
-        <form id="recoverForm" class="hidden" onsubmit="handleRecover(event)">
-          <div class="field">
-            <label id="lblUuid"></label>
-            <input type="text" id="recoverUuid" dir="ltr" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
-          </div>
-          <div class="field">
-            <label id="lblRecoverPassword"></label>
-            <input type="password" id="recoverPwd" dir="ltr" autocomplete="new-password">
-          </div>
-          <button type="submit" class="cta" id="recoverBtn"></button>
-          <button type="button" class="ghost-link" id="backLink" onclick="showLogin()"></button>
-        </form>
-
-        <div class="hint" id="hintBox"></div>
+      <div id="doneCard" class="hidden">
+        <p class="hint" style="border:0;padding:0;margin:0 0 8px" id="doneText"></p>
+        <div class="mono" id="adminPath"></div>
+        <button class="cta" type="button" id="openBtn" style="margin-top:14px"></button>
+        <button class="ghost" type="button" id="copyBtn"></button>
       </div>
+
+      <div class="hint" id="hintBox"></div>
     </div>
   </div>
+</div>
 
 <script>
-  var I18N = ${JSON.stringify(I18N).replace(/</g, '\\u003c')};
-  var INITIALIZED = ${initialized ? 'true' : 'false'};
-  var ADMIN_HINT = ${JSON.stringify(adminHint)};
-  var state = { lang: localStorage.getItem('mili_lang') === 'en' ? 'en' : 'fa', theme: localStorage.getItem('mili_theme') === 'light' ? 'light' : 'dark' };
-
-  function t(key) { return (I18N[state.lang] || I18N.fa)[key] || key; }
-
-  function applyLang() {
-    var dict = I18N[state.lang] || I18N.fa;
-    var html = document.documentElement;
-    html.lang = state.lang;
-    html.dir = dict.dir;
-    document.getElementById('card').dir = dict.dir;
-    document.getElementById('langBtn').textContent = dict.switchLang;
-    document.getElementById('themeBtn').textContent = state.theme === 'light' ? dict.themeDark : dict.themeLight;
-    document.getElementById('brandSub').textContent = INITIALIZED ? dict.loginSub : dict.setupSub;
-    document.getElementById('lblPassword').textContent = dict.password;
-    document.getElementById('pwdInput').placeholder = dict.passwordPh;
-    document.getElementById('loginBtn').textContent = dict.loginBtn;
-    document.getElementById('recoverLink').textContent = dict.recovery;
-    document.getElementById('lblNewPassword').textContent = dict.newPassword;
-    document.getElementById('lblConfirmPassword').textContent = dict.confirmPassword;
-    document.getElementById('setupBtn').textContent = dict.setupBtn;
-    document.getElementById('lblUuid').textContent = dict.uuidLabel;
-    document.getElementById('lblRecoverPassword').textContent = dict.newPassword;
-    document.getElementById('recoverPwd').placeholder = dict.uuidPh;
-    document.getElementById('recoverUuid').placeholder = dict.uuidPh;
-    document.getElementById('recoverBtn').textContent = dict.recoverBtn;
-    document.getElementById('backLink').textContent = dict.back;
-    document.getElementById('lblDone').textContent = dict.setupDone + ' — ' + dict.setupDoneHint;
-    document.getElementById('goPanelBtn').textContent = dict.goPanel;
-    document.getElementById('copyIdBtn').textContent = dict.copyId;
-    document.getElementById('hintBox').textContent = INITIALIZED
-      ? (state.lang === 'en' ? 'Session is valid for 30 days. Password recovery is available with the admin UUID.' : 'نشست شما ۳۰ روز معتبر است. بازیابی رمز فقط با UUID مدیر امکان‌پذیر است.')
-      : (state.lang === 'en' ? 'First run: set an admin password to start the control center.' : 'اولین اجرا: برای شروع مرکز کنترل یک رمز عبور مدیر تعیین کنید.');
-    document.title = document.getElementById('gate').classList.contains('is-visible') ? (BRAND_TITLE) : 'Welcome to nginx!';
-    if (document.getElementById('loginForm').classList.contains('hidden') && document.getElementById('setupForm').classList.contains('hidden')) {
-      document.getElementById('recoverBtn').textContent = dict.recoverBtn;
+var I18N = ${JSON.stringify(LOGIN_I18N).replace(/</g, '\\u003c')};
+var BOOT = ${JSON.stringify(boot).replace(/</g, '\\u003c')};
+(function(){
+  'use strict';
+  var S = { lang: localStorage.getItem('mili.lang') === 'en' ? 'en' : 'fa', theme: localStorage.getItem('mili.theme') || 'system' };
+  var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduced) document.documentElement.dataset.reduced = '1';
+  function t(key){ return (I18N[S.lang] || I18N.fa)[key] || key; }
+  function el(id){ return document.getElementById(id); }
+  function apply(){
+    document.documentElement.lang = S.lang;
+    document.documentElement.dir = S.lang === 'fa' ? 'rtl' : 'ltr';
+    localStorage.setItem('mili.lang', S.lang);
+    var dark = S.theme === 'dark' || (S.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    localStorage.setItem('mili.theme', S.theme);
+    el('langBtn').textContent = t('lang');
+    el('themeBtn').textContent = t('theme') + ': ' + t(S.theme);
+    el('skipBtn').textContent = t('skip');
+    el('gateTitle').textContent = BOOT.initialized ? t('title') : t('setupTitle');
+    el('gateSubtitle').textContent = BOOT.initialized ? t('subtitle') : t('setupSubtitle');
+    el('lblPassword').textContent = t('password');
+    el('lblNewPassword').textContent = t('newPassword');
+    el('lblConfirm').textContent = t('confirm');
+    el('loginBtn').textContent = t('login');
+    el('setupBtn').textContent = t('setup');
+    el('loginBtn').disabled = !BOOT.databaseAvailable;
+    el('setupBtn').disabled = !BOOT.databaseAvailable;
+    el('hintBox').textContent = BOOT.initialized ? t('hint') : t('policy');
+    if (!BOOT.databaseAvailable) {
+      el('dbBox').textContent = t('dbMissing');
+      el('dbBox').style.display = 'block';
+      el('loginBtn').disabled = true;
+      el('setupBtn').disabled = true;
     }
+    el('doneText').textContent = t('done') + ' — ' + t('doneHint');
+    el('openBtn').textContent = t('open');
+    el('copyBtn').textContent = t('copy');
+    el('setupBtn').textContent = t('setup');
+    document.title = BOOT.initialized ? 'Welcome to nginx!' : 'MiliconfigOS · Setup';
   }
-  var BRAND_TITLE = '${BRAND_UPPER} ${VERSION}';
-
-  function applyTheme() {
-    document.body.classList.toggle('light-mode', state.theme === 'light');
-  }
-
-  document.getElementById('langBtn').addEventListener('click', function() {
-    state.lang = state.lang === 'fa' ? 'en' : 'fa';
-    localStorage.setItem('mili_lang', state.lang);
-    applyLang();
-  });
-  document.getElementById('themeBtn').addEventListener('click', function() {
-    state.theme = state.theme === 'dark' ? 'light' : 'dark';
-    localStorage.setItem('mili_theme', state.theme);
-    applyTheme();
-    applyLang();
-  });
-
-  function showErr(msg) {
-    var box = document.getElementById('errBox');
-    box.textContent = msg;
+  function showError(message){
+    var box = el('errBox');
+    box.textContent = message;
     box.style.display = 'block';
   }
-  function clearErr() {
-    var box = document.getElementById('errBox');
-    box.style.display = 'none';
+  function clearError(){ el('errBox').style.display = 'none'; }
+  function reveal(){
+    document.body.classList.add('veiled');
+    el('gate').classList.add('visible');
+    document.title = 'MiliconfigOS · ' + (BOOT.initialized ? t('title') : t('setupTitle'));
+    var focus = BOOT.initialized ? el('password') : el('newPassword');
+    setTimeout(function(){ try { focus.focus(); } catch (e) {} }, reduced ? 0 : 300);
   }
-
-  function showRecover() {
-    clearErr();
-    document.getElementById('loginForm').classList.add('hidden');
-    document.getElementById('setupForm').classList.add('hidden');
-    document.getElementById('recoverForm').classList.remove('hidden');
-  }
-  function showLogin() {
-    clearErr();
-    document.getElementById('recoverForm').classList.add('hidden');
-    if (INITIALIZED) document.getElementById('loginForm').classList.remove('hidden');
-    else document.getElementById('setupForm').classList.remove('hidden');
-  }
-
-  async function postJson(url, payload) {
-    var res = await fetch(url, {
+  function post(path, payload){
+    return fetch(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
       body: JSON.stringify(payload)
+    }).then(function(res){
+      return res.json().catch(function(){ return {}; }).then(function(data){
+        return { ok: res.ok, data: data, status: res.status };
+      });
     });
-    var data = await res.json().catch(function() { return { success: false }; });
-    return { ok: res.ok, data: data };
   }
 
-  async function handleLogin(event) {
+  document.getElementById('loginForm').addEventListener('submit', function(event){
     event.preventDefault();
-    clearErr();
-    var pwd = document.getElementById('pwdInput').value.trim();
-    if (!pwd) { showErr(t('errFill')); return; }
-    var btn = document.getElementById('loginBtn');
-    btn.disabled = true;
-    btn.textContent = t('working');
-    try {
-      var result = await postJson('/api/admin/login', { password: pwd });
-      if (result.data && result.data.success) {
-        window.location.href = result.data.redirect || '/';
+    clearError();
+    var password = el('password').value;
+    if (!password) { showError(t('wrong')); return; }
+    var btn = el('loginBtn');
+    btn.disabled = true; btn.textContent = t('working');
+    post('/api/v1/auth/login', { password: password }).then(function(result){
+      if (result.ok && result.data.ok) {
+        window.location.href = result.data.redirect || location.pathname;
         return;
       }
-      showErr((result.data && result.data.message) || t('errWrong'));
-    } catch (err) {
-      showErr(t('errNetwork'));
-    }
-    btn.disabled = false;
-    btn.textContent = t('loginBtn');
-  }
-
-  async function handleSetup(event) {
-    event.preventDefault();
-    clearErr();
-    var p1 = document.getElementById('newPwd').value.trim();
-    var p2 = document.getElementById('confirmPwd').value.trim();
-    if (p1.length < 4) { showErr(t('errShort')); return; }
-    if (p1 !== p2) { showErr(t('errMismatch')); return; }
-    var btn = document.getElementById('setupBtn');
-    btn.disabled = true;
-    btn.textContent = t('working');
-    try {
-      var result = await postJson('/api/admin/setup-password', { password: p1 });
-      if (result.data && result.data.success) {
-        // شناسه رندوم همین لحظه ساخته شده؛ آن را در همان صفحه اول نشان می‌دهیم
-        INITIALIZED = true;
-        document.getElementById('setupForm').classList.add('hidden');
-        document.getElementById('loginForm').classList.add('hidden');
-        document.getElementById('recoverForm').classList.add('hidden');
-        document.getElementById('doneId').textContent = result.data.adminId || '';
-        var done = document.getElementById('doneCard');
-        done.classList.remove('hidden');
-        done.setAttribute('data-redirect', result.data.redirect || '/');
-        btn.disabled = false;
-        btn.textContent = t('setupBtn');
-        return;
-      }
-      showErr((result.data && result.data.message) || t('errNetwork'));
-    } catch (err) {
-      showErr(t('errNetwork'));
-    }
-    btn.disabled = false;
-    btn.textContent = t('setupBtn');
-  }
-
-  document.getElementById('goPanelBtn').addEventListener('click', function() {
-    var done = document.getElementById('doneCard');
-    window.location.href = done.getAttribute('data-redirect') || '/';
+      showError(result.data && result.data.error ? result.data.error.message : t('wrong'));
+      btn.disabled = false; btn.textContent = t('login');
+    }).catch(function(){
+      showError(t('network'));
+      btn.disabled = false; btn.textContent = t('login');
+    });
   });
-  document.getElementById('copyIdBtn').addEventListener('click', function() {
-    var text = document.getElementById('doneId').textContent || '';
-    if (!text) return;
-    var btn = this;
-    var done = function() { btn.textContent = t('idCopied'); setTimeout(function() { btn.textContent = t('copyId'); }, 1600); };
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(done).catch(done);
-    } else {
-      done();
+
+  document.getElementById('setupForm').addEventListener('submit', function(event){
+    event.preventDefault();
+    clearError();
+    var p1 = el('newPassword').value;
+    var p2 = el('confirmPassword').value;
+    if (p1.length < 10) { showError(t('policy')); return; }
+    if (p1 !== p2) { showError(t('mismatch')); return; }
+    var btn = el('setupBtn');
+    btn.disabled = true; btn.textContent = t('working');
+    post('/api/v1/auth/setup', { password: p1, confirmPassword: p2 }).then(function(result){
+      if (result.ok && result.data.ok) {
+        BOOT.initialized = true;
+        el('setupForm').classList.add('hidden');
+        el('loginForm').classList.add('hidden');
+        el('doneCard').classList.remove('hidden');
+        el('adminPath').textContent = result.data.adminPath || '';
+        el('openBtn').onclick = function(){ window.location.href = result.data.redirect || ('/' + (result.data.adminPath || '')); };
+        el('copyBtn').onclick = function(){
+          if (navigator.clipboard && result.data.adminPath) {
+            navigator.clipboard.writeText(result.data.adminPath).then(function(){ el('copyBtn').textContent = t('copied'); });
+          }
+        };
+        el('skipBtn').style.display = 'none';
+        btn.disabled = false; btn.textContent = t('setup');
+        return;
+      }
+      showError((result.data && result.data.error && result.data.error.message) || t('network'));
+      btn.disabled = false; btn.textContent = t('setup');
+    }).catch(function(){
+      showError(t('network'));
+      btn.disabled = false; btn.textContent = t('setup');
+    });
+  });
+
+  el('skipBtn').addEventListener('click', reveal);
+  el('themeBtn').addEventListener('click', function(){
+    S.theme = S.theme === 'dark' ? 'light' : S.theme === 'light' ? 'system' : 'dark';
+    apply();
+  });
+  el('langBtn').addEventListener('click', function(){
+    S.lang = S.lang === 'fa' ? 'en' : 'fa';
+    apply();
+  });
+  document.addEventListener('keydown', function(event){
+    if ((event.key === 'Enter' || event.key === ' ') && !el('gate').classList.contains('visible')) {
+      event.preventDefault();
+      reveal();
     }
   });
 
-  async function handleRecover(event) {
-    event.preventDefault();
-    clearErr();
-    var uuid = document.getElementById('recoverUuid').value.trim();
-    var pwd = document.getElementById('recoverPwd').value.trim();
-    if (!uuid || pwd.length < 4) { showErr(t('errFill')); return; }
-    var btn = document.getElementById('recoverBtn');
-    btn.disabled = true;
-    btn.textContent = t('working');
-    try {
-      var result = await postJson('/api/admin/reset-password', { uuid: uuid, password: pwd });
-      if (result.data && result.data.success) {
-        window.location.href = result.data.redirect || '/';
-        return;
-      }
-      showErr((result.data && result.data.message) || t('errUuid'));
-    } catch (err) {
-      showErr(t('errNetwork'));
-    }
-    btn.disabled = false;
-    btn.textContent = t('recoverBtn');
+  apply();
+  if (!BOOT.initialized || reduced) {
+    document.body.classList.add('veiled');
+    el('gate').classList.add('visible');
+    setTimeout(function(){ try { (BOOT.initialized ? el('password') : el('newPassword')).focus(); } catch (e) {} }, 0);
+  } else {
+    setTimeout(reveal, 3000);
   }
-
-  applyTheme();
-  applyLang();
-
-  // استتار nginx → تاری صفحه → نمایش آرام پنجره ورود پس از ۳ ثانیه
-  setTimeout(function() {
-    document.body.classList.add('is-veiled');
-  }, 2300);
-  setTimeout(function() {
-    document.getElementById('gate').classList.add('is-visible');
-    document.title = BRAND_TITLE;
-  }, 3000);
-
-  ${recover ? "setTimeout(function(){ showRecover(); }, 3100);" : ''}
+})();
 </script>
 </body>
-</html>`);
+</html>`;
 }

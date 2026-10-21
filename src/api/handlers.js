@@ -15,6 +15,7 @@ import {
   OFFICIAL_DIRECT_IPV6
 } from '../config/defaults.js';
 import { USER_PRESETS } from '../config/presets.js';
+import { listEndpoints } from '../db/v4.js';
 import { isValidDomain, isValidIpAddress, normalizeNodeHost, parseAddressAndPort } from '../core/utils.js';
 import {
   addAuditLog,
@@ -29,6 +30,7 @@ import {
   verifyAdminSession,
   getUserByIdOrToken,
   hasAdminPassword,
+  initializeAdminPassword,
   listUsers,
   loadGlobalConfig,
   resetGlobalConfig,
@@ -57,8 +59,11 @@ function jsonResponse(data, status = 200) {
 // حذف اطلاعات حساس (هش رمز مدیر) از پاسخ‌های API
 function sanitizeConfigForClient(raw = {}) {
   const copy = { ...(raw || {}) };
-  delete copy.adminPasswordHash;
-  delete copy.admin_password_hash;
+  for (const key of Object.keys(copy)) {
+    if (key === 'adminPasswordHash' || key === 'admin_password_hash') delete copy[key];
+    // هر مقدار مربوط به اعتبارنامه ارائه‌دهنده هرگز به کلاینت برنمی‌گردد
+    if (/^cf_/i.test(key) || /token|secret|password_hash/i.test(key)) delete copy[key];
+  }
   return copy;
 }
 
@@ -400,7 +405,7 @@ export async function handleUsersApi(request, env) {
         return jsonResponse({
           success: false,
           error: 'LIMIT_REACHED',
-          message: 'حداکثر سقف مجاز ایجاد کاربر (۳ کاربر) تکمیل شده است. طبق سیاست امنیتی، بیش از ۳ کاربر قابل تعریف نیست.'
+          message: `حداکثر سقف مجاز ایجاد کاربر (${MAX_USERS_LIMIT} کاربر) تکمیل شده است. طبق سیاست امنیتی، بیش از ${MAX_USERS_LIMIT} کاربر قابل تعریف نیست.`
         }, 400);
       }
       const body = await request.json();
@@ -634,7 +639,8 @@ export async function handlePublicUserStatusApi(request, env, token) {
     return jsonResponse({ success: false, message: 'کاربر یافت نشد' }, 404);
   }
   const nodes = await generateUserNodesList(user, url.hostname, {
-    limit: user.subNodeCount
+    limit: user.subNodeCount,
+    catalogEndpoints: await listEndpoints(env)
   });
   return jsonResponse({
     success: true,
@@ -673,7 +679,7 @@ export async function handlePublicUserStatusApi(request, env, token) {
 // ساخت کوکی نشست واقعی مدیریت (HttpOnly و مشتق‌شده از هش رمز)
 function buildSessionCookie(request, token) {
   const isSecure = new URL(request.url).protocol === 'https:';
-  return `mili_auth=${encodeURIComponent(token)}; Path=/; Max-Age=2592000; HttpOnly; SameSite=Lax${isSecure ? '; Secure' : ''}`;
+  return `mili_session=${encodeURIComponent(token)}; Path=/; Max-Age=43200; HttpOnly; SameSite=Strict${isSecure ? '; Secure' : ''}`;
 }
 
 function normalizeAdminKey(value) {
@@ -716,10 +722,14 @@ export async function handleAuthApi(request, env) {
     }
     const body = await request.json().catch(() => ({}));
     const pass = String(body.password || '').trim();
-    if (!pass || pass.length < 4) {
-      return jsonResponse({ success: false, message: 'رمز عبور باید حداقل ۴ کاراکتر باشد.' }, 400);
+    if (!pass) {
+      return jsonResponse({ success: false, message: 'رمز عبور الزامی است.' }, 400);
     }
-    await setAdminPassword(env, pass);
+    try {
+      await initializeAdminPassword(env, pass, request.headers.get('CF-Connecting-IP') || '');
+    } catch (err) {
+      return jsonResponse({ success: false, message: err?.message || 'رمز عبور معتبر نیست.' }, 400);
+    }
     const token = await buildAdminSessionToken(env);
     const headers = new Headers({
       'Content-Type': 'application/json; charset=utf-8',
@@ -738,9 +748,20 @@ export async function handleAuthApi(request, env) {
   if (path === 'login' && request.method === 'POST') {
     const body = await request.json().catch(() => ({}));
     const pass = String(body.password || '').trim();
-    const ok = await verifyAdminPassword(env, pass);
-    if (!ok) {
-      return jsonResponse({ success: false, message: 'رمز عبور وارد شده اشتباه است.' }, 401);
+    const ip = request.headers.get('CF-Connecting-IP') || '127.0.0.1';
+    try {
+      const { recentFailedLogins, recordLoginAttempt } = await import('../db/v4.js');
+      const failures = await recentFailedLogins(env, ip);
+      if (failures >= 8) {
+        return jsonResponse({ success: false, message: 'تلاش‌های ناموفق بیش از حد مجاز است. ۱۵ دقیقه بعد دوباره تلاش کنید.' }, 429);
+      }
+      const ok = await verifyAdminPassword(env, pass);
+      await recordLoginAttempt(env, ip, ok);
+      if (!ok) {
+        return jsonResponse({ success: false, message: 'رمز عبور وارد شده اشتباه است.' }, 401);
+      }
+    } catch (_e) {
+      return jsonResponse({ success: false, message: 'ورود ناموفق بود.' }, 500);
     }
     const token = await buildAdminSessionToken(env);
     const headers = new Headers({
@@ -755,42 +776,26 @@ export async function handleAuthApi(request, env) {
   }
 
   // بازیابی رمز از طریق UUID/مسیر مدیریت (مالکیت مسیر = احراز هویت)
+  // بازیابی رمز با UUID حذف شد: دانستن مسیر مدیریت نباید امکان تغییر رمز بدهد.
+  // برای بازیابی، مدیر باید از طریق دسترسی مستقیم به D1 رمز را بازنشانی کند (docs/SECURITY.md).
   if (path === 'reset-password' && request.method === 'POST') {
-    const body = await request.json().catch(() => ({}));
-    const key = String(body.uuid || body.key || body.adminPath || '').trim();
-    const newPass = String(body.password || '').trim();
-    if (newPass.length < 4) {
-      return jsonResponse({ success: false, message: 'رمز عبور جدید باید حداقل ۴ کاراکتر باشد.' }, 400);
-    }
-    const adminPath = await getOrCreateAdminPath(env);
-    const cfg = await loadGlobalConfig(env);
-    if (!matchesAdminKey(key, adminPath, cfg.d)) {
-      return jsonResponse({ success: false, message: 'UUID/مسیر مدیریت نامعتبر است.' }, 403);
-    }
-    await setAdminPassword(env, newPass);
-    const token = await buildAdminSessionToken(env);
-    const headers = new Headers({
-      'Content-Type': 'application/json; charset=utf-8',
-      'Set-Cookie': buildSessionCookie(request, token)
-    });
-    return new Response(JSON.stringify({
-      success: true,
-      message: 'رمز عبور با موفقیت بازیابی شد.',
-      adminId: adminPath,
-      redirect: '/' + (String(cfg.d || '').trim() || adminPath)
-    }), { status: 200, headers });
+    return jsonResponse({
+      success: false,
+      message: 'بازیابی رمز از طریق UUID غیرفعال شده است. برای بازنشانی، از دسترسی مستقیم به D1 استفاده کنید.'
+    }, 410);
   }
 
   if (path === 'change-password' && request.method === 'POST') {
     const body = await request.json().catch(() => ({}));
     const oldPass = String(body.oldPassword || '').trim();
     const newPass = String(body.newPassword || '').trim();
-    if (!newPass || newPass.length < 4) {
-      return jsonResponse({ success: false, message: 'رمز عبور جدید باید حداقل ۴ کاراکتر باشد.' }, 400);
+    if (!newPass) {
+      return jsonResponse({ success: false, message: 'رمز عبور جدید الزامی است.' }, 400);
     }
-    const ok = await changeAdminPassword(env, oldPass, newPass);
-    if (!ok) {
-      return jsonResponse({ success: false, message: 'رمز عبور فعلی نامعتبر است.' }, 400);
+    try {
+      await changeAdminPassword(env, oldPass, newPass);
+    } catch (err) {
+      return jsonResponse({ success: false, message: err?.message || 'تغییر رمز ناموفق بود.' }, 400);
     }
     // نشست فعلی با هش جدید بازسازی می‌شود تا کاربر بلافاصله بیرون نیفتد
     const token = await buildAdminSessionToken(env);
@@ -804,7 +809,7 @@ export async function handleAuthApi(request, env) {
   // چرخش مسیر مدیریت (نیازمند نشست معتبر)
   if (path === 'rotate-path' && request.method === 'POST') {
     const rawCookie = request.headers.get('Cookie') || '';
-    const tokenMatch = rawCookie.match(/(?:^|;\s*)mili_auth=([^;]*)/);
+    const tokenMatch = rawCookie.match(/(?:^|;\s*)(?:mili_session|mili_auth)=([^;]*)/);
     const sessionToken = tokenMatch ? decodeURIComponent(tokenMatch[1]) : '';
     if (!(await verifyAdminSession(env, sessionToken))) {
       return jsonResponse({ success: false, message: 'دسترسی غیرمجاز' }, 403);
@@ -814,11 +819,22 @@ export async function handleAuthApi(request, env) {
   }
 
   if (path === 'logout' && request.method === 'POST') {
-    const headers = new Headers({
-      'Content-Type': 'application/json; charset=utf-8',
-      'Set-Cookie': 'mili_auth=; Path=/; Max-Age=0'
+    const rawCookie = request.headers.get('Cookie') || '';
+    const tokenMatch = rawCookie.match(/(?:^|;\s*)(?:mili_session|mili_auth)=([^;]*)/);
+    const sessionToken = tokenMatch ? decodeURIComponent(tokenMatch[1]) : '';
+    if (sessionToken) {
+      try {
+        const { revokeAdminSession } = await import('../db/v4.js');
+        await revokeAdminSession(env, sessionToken);
+      } catch (_e) {}
+    }
+    return new Response(JSON.stringify({ success: true, message: 'با موفقیت خارج شدید.' }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Set-Cookie': 'mili_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict, mili_auth=; Path=/; Max-Age=0'
+      }
     });
-    return new Response(JSON.stringify({ success: true, message: 'با موفقیت خارج شدید.' }), { status: 200, headers });
   }
 
   return jsonResponse({ error: 'Endpoint not found' }, 404);

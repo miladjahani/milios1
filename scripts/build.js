@@ -1,6 +1,12 @@
 // ============================================================================
-// miliconfig v3.1 - باندلر ماژولار و سازنده خروجی Cloudflare Workers & Pages
-// پشتیبانی همزمان از استقرار مستقیم گیت‌هاب در Cloudflare Workers و Cloudflare Pages
+// miliconfigOS v4.0 - deterministic module bundler for Cloudflare Workers/Pages
+// Concatenates the ordered source modules, then emits:
+//   dist/_worker.js          Pages `_worker.js` (obfuscated, deployable)
+//   public/_worker.js        static-asset copy for Pages uploads
+//   _worker.js               root artifact used by the repository deploy flow
+//   dist/worker.readable.js  unminified bundle for debugging and review
+// The script never rewrites wrangler.toml and never writes stray copies into
+// the repository root, so builds are reproducible and reviewable.
 // ============================================================================
 
 import fs from 'node:fs';
@@ -8,22 +14,29 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { obfuscateWorkerBundle } from './obfuscate.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const ROOT_DIR = path.resolve(__dirname, '..');
+const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-// ترتیب دقیق ماژول‌ها برای باندلینگ یکپارچه بدون وابستگی به باندلر خارجی
+// Exact module order for the single-file Worker bundle.
 const MODULE_ORDER = [
   'src/config/sources.js',
   'src/config/defaults.js',
+  'src/config/catalog.js',
   'src/config/presets.js',
   'src/core/utils.js',
+  'src/core/security.js',
+  'src/config/schema.js',
+  'src/core/health.js',
+  'src/core/engine.js',
+  'src/core/scanner.js',
   'src/ui/icons.js',
   'src/db/d1.js',
+  'src/db/v4.js',
+  'src/core/automation.js',
   'src/subscription/converters.js',
   'src/subscription/generator.js',
   'src/core/runtime.js',
   'src/api/handlers.js',
+  'src/api/v1.js',
   'src/ui/loginHtml.js',
   'src/ui/statusHtml.js',
   'src/ui/adminHtml.js',
@@ -45,15 +58,13 @@ function stripLocalImportsAndExports(code, isEntryPoint = false) {
       continue;
     }
 
-    // نگه داشتن فقط import { connect as cfConnect } from 'cloudflare:sockets'
+    // The bundle always provides its own `cloudflare:sockets` import header.
     if (/^import\s+.*from\s+['"]cloudflare:sockets['"]/.test(trimmed)) {
       continue;
     }
 
     if (/^import\s+/.test(trimmed)) {
-      if (!trimmed.includes('from ')) {
-        skipMultiLineImport = true;
-      }
+      if (!trimmed.includes('from ')) skipMultiLineImport = true;
       continue;
     }
 
@@ -69,67 +80,45 @@ function stripLocalImportsAndExports(code, isEntryPoint = false) {
   return out.join('\n');
 }
 
-async function buildAll() {
-  console.log('⚡ [miliconfig] در حال ساخت و باندل کردن ماژول‌های پروژه...');
+function writeFileEnsured(filePath, content) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, content, 'utf8');
+}
 
-  const chunks = [`import { connect, connect as cfConnect } from 'cloudflare:sockets';\n`];
+async function buildAll() {
+  console.log('⚡ [miliconfig] bundling modules...');
+
+  const chunks = ["import { connect, connect as cfConnect } from 'cloudflare:sockets';\n"];
 
   for (const relPath of MODULE_ORDER) {
     const fullPath = path.join(ROOT_DIR, relPath);
-    if (!fs.existsSync(fullPath)) {
-      throw new Error(`فایل ماژول یافت نشد: ${relPath}`);
-    }
-    const raw = fs.readFileSync(fullPath, 'utf8');
-    const isEntry = relPath === 'src/index.js';
-    const cleaned = stripLocalImportsAndExports(raw, isEntry);
+    if (!fs.existsSync(fullPath)) throw new Error(`missing module: ${relPath}`);
+    const cleaned = stripLocalImportsAndExports(
+      fs.readFileSync(fullPath, 'utf8'),
+      relPath === 'src/index.js'
+    );
     chunks.push(`// --- MODULE: ${relPath} ---\n${cleaned}\n`);
   }
 
   const rawBundle = chunks.join('\n');
+  writeFileEnsured(path.join(ROOT_DIR, 'dist', 'worker.readable.js'), rawBundle);
 
-  const distDir = path.join(ROOT_DIR, 'dist');
-  const publicDir = path.join(ROOT_DIR, 'public');
-  fs.mkdirSync(distDir, { recursive: true });
-  fs.mkdirSync(publicDir, { recursive: true });
-
-  // ذخیره نسخه باندل‌شده خوانا جهت دیباگ و بررسی
-  fs.writeFileSync(path.join(distDir, 'worker.readable.js'), rawBundle, 'utf8');
-  fs.writeFileSync(path.join(ROOT_DIR, '明文源吗'), rawBundle, 'utf8');
-
-  // اجرای مبهم‌سازی پیشرفته بدون خطای 1101
-  console.log('🔒 [miliconfig] در حال اعمال مبهم‌سازی پیشرفته (Advanced Obfuscation)...');
+  console.log('🔒 [miliconfig] applying minification/obfuscation...');
   const obfuscatedCode = await obfuscateWorkerBundle(rawBundle);
 
-  // نوشتن خروجی‌های نهایی برای Cloudflare Workers و Cloudflare Pages
-  fs.writeFileSync(path.join(distDir, '_worker.js'), obfuscatedCode, 'utf8');
-  fs.writeFileSync(path.join(publicDir, '_worker.js'), obfuscatedCode, 'utf8');
-  fs.writeFileSync(path.join(ROOT_DIR, '_worker.js'), obfuscatedCode, 'utf8');
-  fs.writeFileSync(path.join(ROOT_DIR, '少年你相信光吗'), obfuscatedCode, 'utf8');
+  writeFileEnsured(path.join(ROOT_DIR, 'dist', '_worker.js'), obfuscatedCode);
+  writeFileEnsured(path.join(ROOT_DIR, 'public', '_worker.js'), obfuscatedCode);
+  writeFileEnsured(path.join(ROOT_DIR, '_worker.js'), obfuscatedCode);
 
-  // فایل‌های استاتیک کمکی برای Cloudflare Pages
-  const staticAssetsHtml = `<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="UTF-8"><title>miliconfig</title></head><body>miliconfig Cloudflare Pages Active</body></html>`;
-  fs.writeFileSync(path.join(distDir, 'status-static.html'), staticAssetsHtml, 'utf8');
-  fs.writeFileSync(path.join(publicDir, 'status-static.html'), staticAssetsHtml, 'utf8');
-  fs.writeFileSync(path.join(distDir, '.nojekyll'), '', 'utf8');
-  fs.writeFileSync(path.join(publicDir, '.nojekyll'), '', 'utf8');
+  // Cloudflare Pages ignores dotfiles; this file is what makes the output
+  // directory a valid static-asset deployment instead of an empty upload.
+  writeFileEnsured(path.join(ROOT_DIR, 'dist', '.nojekyll'), '');
+  writeFileEnsured(path.join(ROOT_DIR, 'public', '.nojekyll'), '');
 
-  // سازگاری خودکار با محیط بیلد Cloudflare Pages (تشخیص متغیر CF_PAGES=1)
-  if (process.env.CF_PAGES === '1' || process.env.CF_PAGES === 'true') {
-    console.log('☁️ [miliconfig] محیط Cloudflare Pages تشخیص داده شد؛ تنظیم خودکار wrangler.toml برای Pages...');
-    const pagesWrangler = `name = "miliconfig"
-pages_build_output_dir = "dist"
-compatibility_date = "2024-09-23"
-
-[vars]
-BRAND = "miliconfig"
-`;
-    fs.writeFileSync(path.join(ROOT_DIR, 'wrangler.toml'), pagesWrangler, 'utf8');
-  }
-
-  console.log(`✅ [miliconfig] بیلد و مبهم‌سازی با موفقیت کامل شد! حجم باندل مبهم‌شده: ${(obfuscatedCode.length / 1024).toFixed(1)} KB`);
+  console.log(`✅ [miliconfig] build complete. Obfuscated bundle: ${(obfuscatedCode.length / 1024).toFixed(1)} KB`);
 }
 
 buildAll().catch(err => {
-  console.error('❌ خطا در بیلد پروژه:', err);
+  console.error('❌ build failed:', err);
   process.exit(1);
 });

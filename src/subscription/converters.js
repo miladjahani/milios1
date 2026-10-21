@@ -287,6 +287,8 @@ function buildClashNodeYaml(node, customECHDomain = 'cloudflare-ech.com') {
 }
 
 export function generateClashConfig(links, options = {}) {
+  // xHTTP is an Xray transport; Clash/Mihomo cannot represent it as WebSocket.
+  links = (links || []).filter(link => !/[?&]type=xhttp/i.test(link));
   const customDNS = options.customDNS || 'https://223.5.5.5/dns-query';
   const customECHDomain = options.customECHDomain || 'cloudflare-ech.com';
   const nodes = links.map(parseShareLink).filter(n => n && (n.proto === 'vless' || n.proto === 'trojan' || n.proto === 'ss'));
@@ -530,6 +532,8 @@ function splitDnsAddress(addr) {
 }
 
 export function generateSingboxConfig(links, options = {}) {
+  // sing-box has no xHTTP transport; never downgrade it to WebSocket silently.
+  links = (links || []).filter(link => !/[?&]type=xhttp/i.test(link));
   const customDNS = options.customDNS || 'https://223.5.5.5/dns-query';
   const nodes = links.map(parseShareLink).filter(n => n && (n.proto === 'vless' || n.proto === 'trojan' || n.proto === 'ss'));
   const outboundTags = nodes.map(n => n.name);
@@ -709,6 +713,7 @@ const aclRuleBase = 'https://fastly.jsdelivr.net/gh/ACL4SSR/ACL4SSR@master/Clash
 const aclRule = name => `${aclRuleBase}/${name}.list`;
 
 export function generateSurgeConfig(links, options = {}) {
+  links = (links || []).filter(link => !/[?&]type=xhttp/i.test(link));
   const customDNS = options.customDNS || '223.5.5.5';
   const nodes = links.map(parseShareLink).filter(n => n && (n.proto === 'trojan' || n.proto === 'ss'));
   const names = nodes.map(n => n.name);
@@ -786,6 +791,7 @@ export function generateSurgeConfig(links, options = {}) {
 }
 
 export function generateLoonConfig(links, options = {}) {
+  links = (links || []).filter(link => !/[?&]type=xhttp/i.test(link));
   const customDNS = options.customDNS || '223.5.5.5';
   const nodes = links.map(parseShareLink).filter(n => n && (n.proto === 'vless' || n.proto === 'trojan' || n.proto === 'ss'));
   const names = nodes.map(n => n.name);
@@ -860,6 +866,7 @@ export function generateLoonConfig(links, options = {}) {
 }
 
 export function generateQuanxConfig(links, options = {}) {
+  links = (links || []).filter(link => !/[?&]type=xhttp/i.test(link));
   const customDNS = options.customDNS || '223.5.5.5';
   const nodes = links.map(parseShareLink).filter(n => n && (n.proto === 'vless' || n.proto === 'trojan' || n.proto === 'ss'));
   const names = nodes.map(n => n.name);
