@@ -425,6 +425,9 @@ tbody tr:last-child td{border-bottom:0}
 .list-item:last-child{border-bottom:0}
 .list-item span{color:var(--muted)}
 .modal-backdrop{position:fixed;inset:0;background:rgba(2,8,5,.68);backdrop-filter:blur(6px);z-index:60;display:flex;align-items:center;justify-content:center;padding:18px}
+/* Author display:flex would otherwise beat the UA [hidden]{display:none} rule,
+   leaving the empty dialog open on page load and un-closable. */
+.modal-backdrop[hidden]{display:none}
 .modal{width:min(620px,100%);max-height:90vh;overflow:auto;background:var(--surface);border:1px solid var(--border-strong);border-radius:16px;box-shadow:var(--shadow)}
 .modal-head{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border)}
 .modal-head h3{margin:0;font-size:.95rem}
