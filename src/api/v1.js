@@ -98,6 +98,9 @@ import {
   listEndpoints,
   listSubscriptions,
   recentFailedLogins,
+  recentLoginAttempts,
+  createAdminSession,
+  verifyAdminSessionToken,
   recordAutomationRun,
   recordEndpointHealth,
   recordLoginAttempt,
@@ -209,7 +212,6 @@ async function authenticate(request, env) {
   const token = await getSessionToken(request);
   if (!token) return { ok: false };
   try {
-    const { verifyAdminSessionToken } = await import('../db/v4.js');
     const result = await verifyAdminSessionToken(env, token);
     return { ok: result.valid, token, expiresAt: result.expiresAt };
   } catch (_e) {
@@ -318,7 +320,6 @@ async function handleAuth(request, env, seg, method) {
       return fail(400, 'PASSWORD_POLICY', message);
     }
     const cfg = await loadGlobalConfig(env);
-    const { createAdminSession } = await import('../db/v4.js');
     const session = await createAdminSession(env, { ttlHours: cfg.sessionHours || 12, ip: normalizeClientIp(request) });
     const adminPath = await getOrCreateAdminPath(env);
     return new Response(JSON.stringify({
@@ -359,7 +360,6 @@ async function handleAuth(request, env, seg, method) {
     if (!ok) {
       return fail(401, 'INVALID_CREDENTIALS', 'Incorrect password.');
     }
-    const { createAdminSession } = await import('../db/v4.js');
     const session = await createAdminSession(env, { ttlHours: cfg.sessionHours || 12, ip });
     await addAuditLog(env, 'ورود موفق مدیر', `Session expires ${new Date(session.expiresAt).toISOString()}`, ip);
     return new Response(JSON.stringify({
@@ -407,7 +407,6 @@ async function handleAuth(request, env, seg, method) {
       return fail(400, 'PASSWORD_CHANGE_FAILED', String(err?.message || err));
     }
     const cfg = await loadGlobalConfig(env);
-    const { createAdminSession } = await import('../db/v4.js');
     const fresh = await createAdminSession(env, { ttlHours: cfg.sessionHours || 12, ip: normalizeClientIp(request) });
     return new Response(JSON.stringify({ ok: true, expiresAt: fresh.expiresAt }), {
       status: 200,
@@ -989,7 +988,7 @@ async function handleAudit(request, env) {
   return json({
     ok: true,
     logs: await listAuditLogsPaged(env, { limit, offset }),
-    loginAttempts: await (await import('../db/v4.js')).recentLoginAttempts(env, 20),
+    loginAttempts: await recentLoginAttempts(env, 20),
     sessions: await listActiveSessions(env)
   });
 }

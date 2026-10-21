@@ -14,6 +14,10 @@ import {
 import { buildUserDefaultConfig } from '../config/presets.js';
 import { generateShortId, generateUuidV4, isValidUuid, sha256Hex } from '../core/utils.js';
 import { hashPassword, passwordPolicy, verifyPassword } from '../core/security.js';
+// Session helpers live in the v4 layer; the import is intentional despite the
+// module cycle (d1 ↔ v4) because both sides only call each other at request
+// time, never during module evaluation.
+import { createAdminSession, revokeAllAdminSessions, verifyAdminSessionToken } from './v4.js';
 
 // حافظه کش داخلی هر Isolate جهت کارکرد بدون وقفه و حداکثر سرعت
 const memoryStore = {
@@ -150,7 +154,6 @@ export async function buildAdminSessionToken(env = {}) {
   if (!hasPassword) return '';
   const cfg = await loadGlobalConfig(env);
   try {
-    const { createAdminSession } = await import('./v4.js');
     const session = await createAdminSession(env, { ttlHours: cfg.sessionHours || 12 });
     return session.token;
   } catch (_e) {
@@ -162,7 +165,6 @@ export async function verifyAdminSession(env = {}, token = '') {
   const clean = String(token || '').trim();
   if (!clean) return false;
   try {
-    const { verifyAdminSessionToken } = await import('./v4.js');
     const result = await verifyAdminSessionToken(env, clean);
     return result.valid === true;
   } catch (_e) {
@@ -404,7 +406,6 @@ export async function setAdminPassword(env = {}, plainPassword, clientIp = '') {
 
   // با تغییر رمز، همه نشست‌های قبلی باطل می‌شوند
   try {
-    const { revokeAllAdminSessions } = await import('./v4.js');
     await revokeAllAdminSessions(env);
   } catch (_e) {}
 
@@ -454,7 +455,6 @@ export async function initializeAdminPassword(env = {}, plainPassword, clientIp 
   }
 
   try {
-    const { revokeAllAdminSessions } = await import('./v4.js');
     await revokeAllAdminSessions(env);
   } catch (_e) {}
 

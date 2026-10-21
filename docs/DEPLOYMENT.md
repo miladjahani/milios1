@@ -65,20 +65,81 @@ crons = ["*/15 * * * *"]
 
 Remove that block if you only want manual automation runs.
 
-## 5. Deploy with Pages (alternative)
+## 5. Deploy to Cloudflare Pages (pages.dev)
+
+Pages runs the same Worker as a single `dist/_worker.js` advanced-mode function. The repository
+ships a deployer that provisions everything instead of asking you to click through dashboards.
+
+### One command
+
+```bash
+# Cloudflare API token: Account → Cloudflare Pages → Edit, Account → D1 → Edit,
+# User → User Details → Read (or Account → Account Settings → Read)
+export CLOUDFLARE_API_TOKEN=...
+export CLOUDFLARE_ACCOUNT_ID=...        # optional when the token sees one account
+
+npm run deploy:pages -- --create-db    # creates D1 if missing, then deploys
+```
+
+The deployer (`scripts/deploy-pages.js`) performs, in order:
+
+1. validates the token (`/user/tokens/verify`) and resolves the account;
+2. finds the D1 database `miliconfig-db` (or creates it with `--create-db`);
+3. builds `dist/_worker.js` unless `--skip-build` is passed;
+4. creates the Pages project `miliconfig` when it does not exist;
+5. binds D1 as `DB` for **production and preview** deployments via the Pages API;
+6. applies `schema.sql` to the remote D1 database (idempotent);
+7. stores `MILI_ENCRYPTION_KEY` as a Pages secret — from your environment when provided,
+   otherwise a random key is generated once and never printed;
+8. uploads `dist/` with `wrangler pages deploy` and prints the real `*.pages.dev` URLs.
+
+If the requested subdomain is already taken by any Cloudflare account, Pages assigns a suffix
+(for example `miliconfig-77w.pages.dev`). The deployer reads the project's actual `subdomain` from
+the API and prints that URL — never assume `<project>.pages.dev`.
+
+Options:
+
+| Flag / env | Effect |
+| --- | --- |
+| `--create-db` | Create the D1 database when it does not exist. |
+| `--project <name>` / `PAGES_PROJECT` | Pages project name (default `miliconfig`). |
+| `--db-name <name>` / `D1_DATABASE_NAME` | D1 database name (default `miliconfig-db`). |
+| `D1_DATABASE_ID` | Use an existing D1 database instead of looking it up. |
+| `MILI_ENCRYPTION_KEY` | Use this key instead of generating one. |
+| `--skip-build` | Upload the existing `dist/` directory. |
+| `--check` | Offline preflight only; no network calls, no changes. |
+
+`npm run deploy:pages:check` runs the preflight and is part of CI.
+
+### Deploy from GitHub Actions
+
+`.github/workflows/pages.yml` deploys on a `v*` tag or manual dispatch. Add these repository
+secrets/variables:
+
+- secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, optionally `D1_DATABASE_ID`
+- variables: `PAGES_PROJECT`, `D1_DATABASE_NAME` (optional)
+
+For the first run, choose **Run workflow → create_database = true** if the database does not exist
+yet; later runs reuse it.
+
+### Manual alternative
 
 ```bash
 npm run build
-wrangler pages deploy dist --project-name miliconfig
+npx wrangler pages deploy dist --project-name miliconfig
 ```
 
-Pages requirements:
+Then bind D1 under **Settings → Functions → D1 database bindings** as `DB`, and set
+`MILI_ENCRYPTION_KEY` with `npx wrangler pages secret put MILI_ENCRYPTION_KEY --project-name miliconfig`.
 
-- Build command: `npm run build`
-- Output directory: `dist`
-- `dist/_worker.js` must exist (the build writes it).
-- Bind D1 under **Settings → Functions → D1 database bindings** with variable name `DB`.
-- Cron Triggers are not available on Pages; run automation from the panel.
+Pages notes:
+
+- The build output directory must be `dist` and must contain `_worker.js`.
+- Cron Triggers are not available on Pages. Automation jobs can still be run from the panel
+  (Automation → Run) or through `POST /api/v1/automation/:id/run`; the Worker variant supports the
+  scheduled trigger.
+- Preview deployments inherit the same `DB` binding but share the production database unless you
+  create a separate D1 database for previews.
 
 ## 6. First-run setup
 

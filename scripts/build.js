@@ -4,7 +4,7 @@
 //   dist/_worker.js          Pages `_worker.js` (obfuscated, deployable)
 //   public/_worker.js        static-asset copy for Pages uploads
 //   _worker.js               root artifact used by the repository deploy flow
-//   dist/worker.readable.js  unminified bundle for debugging and review
+//   build/worker.readable.js unminified bundle for debugging (never uploaded)
 // The script never rewrites wrangler.toml and never writes stray copies into
 // the repository root, so builds are reproducible and reviewable.
 // ============================================================================
@@ -101,18 +101,24 @@ async function buildAll() {
   }
 
   const rawBundle = chunks.join('\n');
-  writeFileEnsured(path.join(ROOT_DIR, 'dist', 'worker.readable.js'), rawBundle);
+  // Debug bundle stays outside the Pages upload directory: the deployment
+  // directory must contain only what is meant to be public.
+  writeFileEnsured(path.join(ROOT_DIR, 'build', 'worker.readable.js'), rawBundle);
 
   console.log('🔒 [miliconfig] applying minification/obfuscation...');
   const obfuscatedCode = await obfuscateWorkerBundle(rawBundle);
 
-  writeFileEnsured(path.join(ROOT_DIR, 'dist', '_worker.js'), obfuscatedCode);
+  // Rebuild dist from scratch so removed modules never linger in an upload.
+  const distDir = path.join(ROOT_DIR, 'dist');
+  fs.rmSync(distDir, { recursive: true, force: true });
+
+  writeFileEnsured(path.join(distDir, '_worker.js'), obfuscatedCode);
   writeFileEnsured(path.join(ROOT_DIR, 'public', '_worker.js'), obfuscatedCode);
   writeFileEnsured(path.join(ROOT_DIR, '_worker.js'), obfuscatedCode);
 
-  // Cloudflare Pages ignores dotfiles; this file is what makes the output
-  // directory a valid static-asset deployment instead of an empty upload.
-  writeFileEnsured(path.join(ROOT_DIR, 'dist', '.nojekyll'), '');
+  // Cloudflare Pages ignores dotfiles; keep the marker so the folder is a valid
+  // static-asset deployment even when only the Worker file is present.
+  writeFileEnsured(path.join(distDir, '.nojekyll'), '');
   writeFileEnsured(path.join(ROOT_DIR, 'public', '.nojekyll'), '');
 
   console.log(`✅ [miliconfig] build complete. Obfuscated bundle: ${(obfuscatedCode.length / 1024).toFixed(1)} KB`);

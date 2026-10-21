@@ -71,7 +71,9 @@ and the panel opens at `/admin`. The local database lives in `.dev/miliconfig.sq
 ```bash
 npm test               # 64 automated tests (node:test + real SQLite D1 adapter)
 npm run check:schema   # apply schema.sql + migrations/*.sql to a throwaway database
-npm run build          # dist/_worker.js, public/_worker.js, _worker.js, dist/worker.readable.js
+npm run build          # dist/_worker.js, public/_worker.js, _worker.js
+npm run deploy:pages   # one-command Cloudflare Pages (pages.dev) deployment
+npm run deploy:pages:check   # offline preflight for that deployer
 ```
 
 The local server is a development harness: it runs the real Worker `fetch` handler, but the
@@ -88,6 +90,18 @@ wrangler deploy
 
 Open the deployed URL, complete the first-run setup, then sign in. Full instructions, Pages
 variant, CI/CD notes and rollback steps: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
+### pages.dev (Cloudflare Pages)
+
+```bash
+CLOUDFLARE_API_TOKEN=... npm run deploy:pages -- --create-db
+```
+
+That single command verifies the token, creates or finds the D1 database, applies the schema,
+creates the Pages project, binds D1 for production and preview, stores the encryption key as a
+Pages secret, uploads `dist/` and prints the `*.pages.dev` URL. Preflight without credentials:
+`npm run deploy:pages:check`. GitHub Actions deployment: `.github/workflows/pages.yml`.
+Pages has no Cron Trigger, so run automation from the panel there.
 
 ## Project layout
 
@@ -126,6 +140,7 @@ miliconfig/
 │   ├── build.js                  # deterministic bundler → dist/_worker.js
 │   ├── obfuscate.js              # Workers-safe minifier/obfuscator
 │   ├── dev-server.js             # local Node harness with SQLite D1
+│   ├── deploy-pages.js           # pages.dev deployer (D1, bindings, secret, upload)
 │   ├── check-schema.js           # schema + migration validation
 │   ├── test-worker.js            # legacy test entry point → node:test
 │   └── lib/                      # SQLite D1 adapter, sockets alias hook
@@ -134,7 +149,8 @@ miliconfig/
 ├── schema.sql                    # complete current D1 schema
 ├── docs/                         # architecture, API, security, deployment, compatibility, test report
 ├── wrangler.toml                 # Worker deployment
-├── wrangler.pages.toml           # Pages deployment variant
+├── wrangler.pages.toml           # Pages manual-deploy variant
+├── .github/workflows/pages.yml   # Pages deployment (pages.dev)
 └── package.json
 ```
 

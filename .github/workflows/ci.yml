@@ -28,4 +28,7 @@ jobs:
         run: npm run build
 
       - name: Verify bundle is syntactically valid
-        run: node --check dist/worker.readable.js
+        run: node --check build/worker.readable.js
+
+      - name: Pages deployer preflight
+        run: node scripts/deploy-pages.js --check

@@ -60,8 +60,8 @@
 14. **Build mutated deployment config.** `scripts/build.js` rewrote `wrangler.toml` when
     `CF_PAGES=1`, silently changing the Worker config. Removed; builds no longer touch config.
 15. **Build wrote stray copies** of the bundle into the repository root with obfuscated filenames.
-    Removed; outputs are now exactly `dist/_worker.js`, `public/_worker.js`, `_worker.js` and
-    `dist/worker.readable.js`.
+    Removed; outputs are now exactly `dist/_worker.js`, `public/_worker.js` and `_worker.js`, with the
+    readable debug bundle kept outside the upload directory at `build/worker.readable.js`.
 16. **Committed database id.** `wrangler.pages.toml` / `wrangler.worker.toml` contained a concrete D1
     database id. Replaced with documented placeholders.
 17. **CI workflow paths referenced removed artifacts** and committed them on every push. Rewritten:

@@ -74,7 +74,9 @@ Against the local worker harness (`scripts/dev-server.js`, real SQLite database)
 | Automation run (`POST /api/v1/automation/job-config/run`) | success, `run_count` incremented, detail recorded |
 | Scanner on `1.1.1.1:443` | syntax `ok`, TCP not performed locally and reported as such, score 5 |
 | `node scripts/check-schema.js` | applies `schema.sql` + both migrations, 17 tables, 21 user columns |
-| `npm run build` + `node --check dist/worker.readable.js` | bundle builds and parses |
+| `npm run build` + `node --check build/worker.readable.js` | bundle builds and parses; `dist/` contains only `.nojekyll` and `_worker.js` |
+| `npm run deploy:pages:check` | Pages deployer preflight exits `0` offline; without a token the deploy path exits `1` with setup instructions |
+| `npm run deploy:pages:check` | Pages deployer preflight passes offline |
 
 ## Not verified here (and why)
 
@@ -94,5 +96,6 @@ npm test
 npm run check:schema
 npm run dev        # then walk through first-run setup in a browser
 npm run build
-node --check dist/worker.readable.js
+node --check build/worker.readable.js
+npm run deploy:pages:check
 ```

@@ -10,6 +10,9 @@ node_modules/
 # Local development database (scripts/dev-server.js)
 .dev/
 
+# Debug bundle produced by scripts/build.js (not deployed)
+build/
+
 # Local environment overrides for wrangler dev
 .dev.vars
 

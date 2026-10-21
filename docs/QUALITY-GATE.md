@@ -40,6 +40,8 @@ Status meanings: **PASS** — verified in this repository/run. **NOT TESTABLE IN
 | 32 | REALITY support | NOT IMPLEMENTED | Requires a native core and raw TCP; impossible on Workers. Explicitly advertised as unsupported. |
 | 33 | Arbitrary UDP forwarding | NOT IMPLEMENTED | Workers cannot relay arbitrary UDP; DNS-only UDP is stated. |
 | 34 | Browser E2E automation | NOT IMPLEMENTED | No Playwright/Cypress dependency in this project; adding one was out of scope for the delivered stack. Manual HTTP flows cover the server side. |
+| 35 | Pages (pages.dev) deployer | PASS (preflight) | `npm run deploy:pages:check` passes; the deployer builds, provisions D1/project/bindings/secret and uploads `dist/`. |
+| 36 | Live pages.dev deployment executed | NOT TESTABLE IN CURRENT ENVIRONMENT | No `CLOUDFLARE_API_TOKEN`/account is available in this workspace; the deployer stops with explicit instructions until one is provided. |
 
 ## Verification commands used
 
@@ -47,7 +49,8 @@ Status meanings: **PASS** — verified in this repository/run. **NOT TESTABLE IN
 npm test                          # 64 pass / 0 fail
 npm run check:schema              # schema.sql + migrations applied to SQLite
 npm run build                     # bundle produced
-node --check dist/worker.readable.js
+node --check build/worker.readable.js
+node scripts/deploy-pages.js --check
 ```
 
 Manual HTTP checks against the running Worker harness are listed in `docs/TESTING.md`.

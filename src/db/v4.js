@@ -17,7 +17,7 @@ import {
   sha256HexDigest,
   timingSafeEqual
 } from '../core/security.js';
-import { detectD1Binding } from './d1.js';
+import { detectD1Binding, getAuditLogs } from './d1.js';
 
 const state = {
   ready: false,
@@ -1116,7 +1116,6 @@ export async function listAuditLogsPaged(env, { limit = 50, offset = 0 } = {}) {
   const safeLimit = Math.max(1, Math.min(200, Number(limit) || 50));
   const safeOffset = Math.max(0, Number(offset) || 0);
   if (state.memory) {
-    const { getAuditLogs } = await import('./d1.js');
     return await getAuditLogs(env, safeLimit);
   }
   const rows = await all(

@@ -15,7 +15,12 @@ import {
   OFFICIAL_DIRECT_IPV6
 } from '../config/defaults.js';
 import { USER_PRESETS } from '../config/presets.js';
-import { listEndpoints } from '../db/v4.js';
+import {
+  listEndpoints,
+  recentFailedLogins,
+  recordLoginAttempt,
+  revokeAdminSession
+} from '../db/v4.js';
 import { isValidDomain, isValidIpAddress, normalizeNodeHost, parseAddressAndPort } from '../core/utils.js';
 import {
   addAuditLog,
@@ -750,7 +755,6 @@ export async function handleAuthApi(request, env) {
     const pass = String(body.password || '').trim();
     const ip = request.headers.get('CF-Connecting-IP') || '127.0.0.1';
     try {
-      const { recentFailedLogins, recordLoginAttempt } = await import('../db/v4.js');
       const failures = await recentFailedLogins(env, ip);
       if (failures >= 8) {
         return jsonResponse({ success: false, message: 'تلاش‌های ناموفق بیش از حد مجاز است. ۱۵ دقیقه بعد دوباره تلاش کنید.' }, 429);
@@ -824,7 +828,6 @@ export async function handleAuthApi(request, env) {
     const sessionToken = tokenMatch ? decodeURIComponent(tokenMatch[1]) : '';
     if (sessionToken) {
       try {
-        const { revokeAdminSession } = await import('../db/v4.js');
         await revokeAdminSession(env, sessionToken);
       } catch (_e) {}
     }

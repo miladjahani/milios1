@@ -15,7 +15,8 @@
     "test:watch": "node --test --watch \"tests/*.test.js\"",
     "check:schema": "node scripts/check-schema.js",
     "deploy:worker": "wrangler deploy",
-    "deploy:pages": "npm run build && wrangler pages deploy dist"
+    "deploy:pages": "node scripts/deploy-pages.js",
+    "deploy:pages:check": "node scripts/deploy-pages.js --check"
   },
   "keywords": [
     "miliconfig",
@@ -35,6 +36,7 @@
   "devDependencies": {
     "acorn": "^8.14.0",
     "javascript-obfuscator": "^4.1.1",
-    "terser": "^5.36.0"
+    "terser": "^5.36.0",
+    "wrangler": "^4.151.3"
   }
 }
