@@ -211,7 +211,7 @@ ${ADMIN_CSS}
       </div>
     </aside>
     <main class="main">
-      <div class="view" id="view" aria-live="polite"></div>
+      <div class="view" id="view" aria-live="polite"><div class="page-loading"><span class="spinner"></span>Loading…</div></div>
     </main>
   </div>
 </div>
@@ -1019,7 +1019,12 @@ const ADMIN_JS = `
   }
 
   function showError(err){
-    document.getElementById('view').innerHTML = pageHead(t('error'), '') + '<div class="alert err"><div><b>' + esc(t('error')) + '</b>' + esc(err && err.message ? err.message : String(err)) + '</div></div>';
+    // A blank dashboard is useless: always explain what failed and how to check
+    // the deployment (the health endpoint needs no session).
+    document.getElementById('view').innerHTML = pageHead(t('error'), '') +
+      '<div class="alert err"><div><b>' + esc(t('error')) + '</b>' + esc(err && err.message ? err.message : String(err)) +
+      '<div class="faint" style="margin-top:6px">If this persists, open <a class="mono" href="/api/v1/health" target="_blank" rel="noopener">/api/v1/health</a> and check that the D1 database is bound to this deployment as <span class="mono">DB</span>.</div>' +
+      '</div></div>';
   }
 
   function loadPage(page){
@@ -1462,6 +1467,22 @@ const ADMIN_JS = `
     render();
   });
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(){ if (S.theme === 'system') applyChrome(); });
+
+  // Any uncaught script error must surface on screen instead of leaving the
+  // dashboard skeleton showing an empty content area.
+  var reportingError = false;
+  function reportCrash(reason){
+    if (reportingError) return;
+    reportingError = true;
+    try { showError(reason instanceof Error ? reason : new Error(String(reason))); } catch (e) {}
+    reportingError = false;
+  }
+  window.addEventListener('error', function(event){
+    if (event && event.message) reportCrash(event.message);
+  });
+  window.addEventListener('unhandledrejection', function(event){
+    reportCrash(event && event.reason ? event.reason : 'Unhandled rejection');
+  });
 
   var initial = (location.hash || '').replace('#','');
   if (pages.some(function(p){ return p.id === initial; })) S.page = initial;

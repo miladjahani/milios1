@@ -1,0 +1,19 @@
+# Deploy this folder as a Cloudflare Worker:
+#   npx wrangler deploy -c wrangler.toml
+# The D1 database must be bound as DB before the panel can store anything.
+# Uncomment the block below and paste your database id, or add the binding in
+# the dashboard: Worker -> Settings -> Bindings -> D1 database, variable DB.
+name = "miliconfig"
+main = "_worker.js"
+compatibility_date = "2024-11-06"
+
+[observability]
+enabled = true
+
+[vars]
+BRAND = "miliconfig"
+
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "miliconfig-db"
+# database_id = "REPLACE-WITH-YOUR-D1-DATABASE-UUID"

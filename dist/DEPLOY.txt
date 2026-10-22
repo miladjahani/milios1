@@ -1,0 +1,18 @@
+miliconfigOS - dist folder
+==========================
+
+_worker.js is a complete Worker bundle (module syntax) built by `npm run build`.
+
+Deploy it as a Worker:
+  1. npx wrangler deploy -c wrangler.toml          (from this folder), or
+  2. Cloudflare dashboard -> Workers -> connect this repository, root directory
+     `dist`, deploy command `npx wrangler deploy`.
+
+Deploy it as Cloudflare Pages (advanced mode): create a Pages project from the
+repository with build output directory `dist`. Pages picks up `_worker.js`
+automatically.
+
+Either way the D1 database has to be bound as DB. Without it the panel renders
+the sign-in page but cannot store a password, and /api/v1/health reports
+"storage": "none". Bind it in the dashboard (Worker/Pages -> Settings ->
+Bindings -> D1) or paste database_id into wrangler.toml before deploying.

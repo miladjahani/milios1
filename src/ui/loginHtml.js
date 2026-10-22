@@ -195,6 +195,21 @@ html[data-theme="light"] .err{color:#b91c1c}
 </style>
 </head>
 <body>
+<script>
+/* Safety net: the gateway card must never stay hidden. If the main script throws
+   or is blocked, this reveals it anyway so the page is never a blank screen. */
+(function(){
+  function force(){
+    var gate = document.getElementById('gate');
+    if (!gate || gate.classList.contains('visible')) return;
+    gate.classList.add('visible');
+    document.body.classList.add('veiled');
+  }
+  window.addEventListener('error', force);
+  window.addEventListener('unhandledrejection', force);
+  setTimeout(force, 3500);
+})();
+</script>
 <div class="frame">
   <iframe class="homepage" id="homepage" src="/__homepage" title="Homepage" tabindex="-1" referrerpolicy="no-referrer"></iframe>
   <div class="scrim"></div>
@@ -410,7 +425,8 @@ var BOOT = ${JSON.stringify(boot).replace(/</g, '\\u003c')};
     el('gate').classList.add('visible');
     setTimeout(function(){ try { (BOOT.initialized ? el('password') : el('newPassword')).focus(); } catch (e) {} }, 0);
   } else {
-    setTimeout(reveal, 3000);
+    // Short intro only: a long delay looked like a blank page on slow phones.
+    setTimeout(reveal, 800);
   }
 })();
 </script>

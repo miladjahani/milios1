@@ -16,6 +16,48 @@ import { obfuscateWorkerBundle } from './obfuscate.js';
 
 const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
+// Written into dist/ so the folder can be deployed on its own.
+const DIST_WRANGLER_TOML = `# Deploy this folder as a Cloudflare Worker:
+#   npx wrangler deploy -c wrangler.toml
+# The D1 database must be bound as DB before the panel can store anything.
+# Uncomment the block below and paste your database id, or add the binding in
+# the dashboard: Worker -> Settings -> Bindings -> D1 database, variable DB.
+name = "miliconfig"
+main = "_worker.js"
+compatibility_date = "2024-11-06"
+
+[observability]
+enabled = true
+
+[vars]
+BRAND = "miliconfig"
+
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "miliconfig-db"
+# database_id = "REPLACE-WITH-YOUR-D1-DATABASE-UUID"
+`;
+
+const DIST_README = `miliconfigOS - dist folder
+==========================
+
+_worker.js is a complete Worker bundle (module syntax) built by \`npm run build\`.
+
+Deploy it as a Worker:
+  1. npx wrangler deploy -c wrangler.toml          (from this folder), or
+  2. Cloudflare dashboard -> Workers -> connect this repository, root directory
+     \`dist\`, deploy command \`npx wrangler deploy\`.
+
+Deploy it as Cloudflare Pages (advanced mode): create a Pages project from the
+repository with build output directory \`dist\`. Pages picks up \`_worker.js\`
+automatically.
+
+Either way the D1 database has to be bound as DB. Without it the panel renders
+the sign-in page but cannot store a password, and /api/v1/health reports
+"storage": "none". Bind it in the dashboard (Worker/Pages -> Settings ->
+Bindings -> D1) or paste database_id into wrangler.toml before deploying.
+`;
+
 // Exact module order for the single-file Worker bundle.
 const MODULE_ORDER = [
   'src/config/sources.js',
@@ -122,6 +164,11 @@ async function buildAll() {
   // static-asset deployment even when only the Worker file is present.
   writeFileEnsured(path.join(distDir, '.nojekyll'), '');
   writeFileEnsured(path.join(ROOT_DIR, 'public', '.nojekyll'), '');
+
+  // `dist/` also works as a standalone Worker directory (Workers Builds with the
+  // root set to dist, or `wrangler deploy -c wrangler.toml` from inside it).
+  writeFileEnsured(path.join(distDir, 'wrangler.toml'), DIST_WRANGLER_TOML);
+  writeFileEnsured(path.join(distDir, 'DEPLOY.txt'), DIST_README);
 
   console.log(`✅ [miliconfig] build complete. Obfuscated bundle: ${(obfuscatedCode.length / 1024).toFixed(1)} KB`);
 }
