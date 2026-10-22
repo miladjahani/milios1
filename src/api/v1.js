@@ -51,6 +51,18 @@ import {
 } from '../core/engine.js';
 import { checkEchRecord, checkTarget, scanTargets } from '../core/scanner.js';
 import { findEchConfig } from '../core/ech.js';
+import {
+  MAX_SOURCES_PER_REQUEST,
+  applySourcesToPreferred,
+  collectSourceAddresses,
+  getLastSourceCheck,
+  getSourcesAuto,
+  probeSources,
+  resolveSourceEntries,
+  saveSourcesAuto,
+  sourcesOverview,
+  storeSourceCheck
+} from '../core/sources.js';
 import { runAutomationJob } from '../core/automation.js';
 import { healthLabel } from '../core/health.js';
 import { isValidDomain, isValidIpAddress, isValidUuid, normalizeNodeHost } from '../core/utils.js';
@@ -114,6 +126,7 @@ import {
   saveCloudflareResource,
   saveCloudflareToken,
   setAutomationJobEnabled,
+  setAutomationJobInterval,
   setMeta,
   setSubscriptionRevoked,
   updateEndpoint,
@@ -908,6 +921,112 @@ async function handleDns(request, env, seg, method) {
   return fail(404, 'NOT_FOUND', 'Unknown DNS route.');
 }
 
+// ---------------------------------------------------------------------------
+// Live source registry (CFnew lists)
+// ---------------------------------------------------------------------------
+async function handleSources(request, env, seg, method) {
+  const cfg = await loadGlobalConfig(env);
+  const action = seg[1] || '';
+
+  if (!action && method === 'GET') {
+    const overview = sourcesOverview();
+    const [auto, lastCheck] = await Promise.all([getSourcesAuto(env), getLastSourceCheck(env)]);
+    return json({
+      ok: true,
+      ...overview,
+      catalog: resolveSourceEntries({}),
+      auto,
+      lastCheck: lastCheck || null,
+      defaults: { family: 'any', limit: 24, replace: false, maxPerRequest: MAX_SOURCES_PER_REQUEST }
+    });
+  }
+
+  if (action === 'check' && method === 'POST') {
+    const body = await readBody(request);
+    const entries = resolveSourceEntries({ ids: body.ids, categories: body.categories });
+    if (!entries.length) return fail(400, 'NO_SOURCES', 'No source matched the request.');
+    const probe = await probeSources(entries, {
+      concurrency: cfg.scannerConcurrency || 4,
+      timeoutMs: body.timeoutMs
+    });
+    await storeSourceCheck(env, {
+      checkedAt: probe.checkedAt,
+      okCount: probe.okCount,
+      requested: entries.length,
+      checked: probe.results.length,
+      results: probe.results
+    });
+    await addAuditLog(
+      env,
+      'بررسی زندهٔ منابع',
+      `${probe.okCount}/${probe.results.length} source(s) reachable`,
+      normalizeClientIp(request)
+    );
+    return json({ ok: true, requested: entries.length, ...probe });
+  }
+
+  if (action === 'apply' && method === 'POST') {
+    const body = await readBody(request);
+    const entries = resolveSourceEntries({ ids: body.ids, categories: body.categories });
+    if (!entries.length) return fail(400, 'NO_SOURCES', 'No source matched the request.');
+    const family = ['any', 'ipv4', 'ipv6'].includes(String(body.family || '').toLowerCase())
+      ? String(body.family).toLowerCase()
+      : 'any';
+    const collected = await collectSourceAddresses(entries, {
+      limit: body.limit,
+      family,
+      concurrency: cfg.scannerConcurrency || 4,
+      timeoutMs: body.timeoutMs
+    });
+    if (!collected.candidates.length) {
+      return fail(409, 'NO_CANDIDATES', 'The selected sources returned no usable address.');
+    }
+    const applied = body.save === false
+      ? null
+      : await applySourcesToPreferred(env, collected.candidates, { replace: body.replace === true });
+    if (applied) {
+      await addAuditLog(
+        env,
+        'اعمال منابع در CFnew (yx)',
+        `${applied.added.length} address(es) added from ${collected.candidates.length} candidate(s)`,
+        normalizeClientIp(request)
+      );
+    }
+    return json({
+      ok: true,
+      requested: entries.length,
+      family,
+      candidates: collected.candidates,
+      sources: collected.sources,
+      checkedAt: collected.checkedAt,
+      applied
+    });
+  }
+
+  if (action === 'auto' && method === 'GET') {
+    return json({ ok: true, auto: await getSourcesAuto(env) });
+  }
+
+  if (action === 'auto' && (method === 'PUT' || method === 'POST' || method === 'PATCH')) {
+    const body = await readBody(request);
+    const auto = await saveSourcesAuto(env, body.auto && typeof body.auto === 'object' ? body.auto : body);
+    // Keep the Cron job in step with the panel switch and interval.
+    try {
+      await setAutomationJobEnabled(env, 'job-sources', auto.enabled);
+      await setAutomationJobInterval(env, 'job-sources', auto.intervalMinutes);
+    } catch (_e) {}
+    await addAuditLog(
+      env,
+      'تنظیمات اتوماسیون منابع',
+      `enabled=${auto.enabled} interval=${auto.intervalMinutes}m categories=${auto.categories.join(',')}`,
+      normalizeClientIp(request)
+    );
+    return json({ ok: true, auto });
+  }
+
+  return fail(404, 'NOT_FOUND', 'Unknown sources route.');
+}
+
 async function handleSettings(request, env, seg, method) {
   const stored = await loadGlobalConfig(env);
   const values = sanitizeSettingsForClient({ ...defaultSettings(), ...CONFIG_DEFAULTS, ...stored });
@@ -1360,6 +1479,7 @@ export async function handleV1Api(request, env) {
     if (seg[0] === 'subscriptions') return await handleSubscriptions(request, env, seg, method, await loadGlobalConfig(env));
     if (seg[0] === 'scanner') return await handleScanner(request, env, seg, method, await loadGlobalConfig(env));
     if (seg[0] === 'dns') return await handleDns(request, env, seg, method);
+    if (seg[0] === 'sources') return await handleSources(request, env, seg, method);
     if (seg[0] === 'settings') return await handleSettings(request, env, seg, method);
     if (seg[0] === 'usage' && method === 'GET') return await handleUsage(request, env, seg);
     if (seg[0] === 'audit' && method === 'GET') return await handleAudit(request, env);

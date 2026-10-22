@@ -15,6 +15,12 @@ import {
 } from '../db/v4.js';
 import { buildPlans } from './engine.js';
 import { scanTargets } from './scanner.js';
+import {
+  applySourcesToPreferred,
+  collectSourceAddresses,
+  getSourcesAuto,
+  resolveSourceEntries
+} from './sources.js';
 
 const MAX_JOBS_PER_TICK = 6;
 
@@ -57,6 +63,24 @@ export async function runAutomationJob(env, job, cfg, clientIp = 'cron') {
         else invalid += 1;
       }
       detail = `${valid} user(s) have at least one valid combination; ${invalid} do not.`;
+    } else if (job.kind === 'sources-sync') {
+      const auto = await getSourcesAuto(env);
+      if (!auto.enabled) {
+        detail = 'Automatic CFnew source sync is off; nothing was applied.';
+      } else {
+        const entries = resolveSourceEntries({ categories: auto.categories });
+        const collected = await collectSourceAddresses(entries, {
+          limit: auto.limit,
+          family: auto.family,
+          concurrency: Math.min(4, Number(cfg.scannerConcurrency) || 4)
+        });
+        if (!collected.candidates.length) {
+          detail = `No usable address from ${entries.length} source(s); yx was left unchanged.`;
+        } else {
+          const applied = await applySourcesToPreferred(env, collected.candidates, { replace: auto.replace });
+          detail = `Added ${applied.added.length} address(es) from ${collected.okCount}/${entries.length} live source(s); yx now holds ${applied.total}.`;
+        }
+      }
     } else {
       throw new Error(`Unknown job kind: ${job.kind}`);
     }

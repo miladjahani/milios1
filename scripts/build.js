@@ -29,6 +29,7 @@ const MODULE_ORDER = [
   'src/core/engine.js',
   'src/core/ech.js',
   'src/core/scanner.js',
+  'src/core/sources.js',
   'src/ui/icons.js',
   'src/db/d1.js',
   'src/db/v4.js',

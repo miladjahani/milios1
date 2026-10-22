@@ -33,6 +33,7 @@ the Worker's own probe results, or an explicitly labelled "not available" state.
 | Persistent user CRUD, quota, expiry, node scope, per-user UUID | Working | `src/api/v1.js`, `src/db/d1.js` |
 | Endpoint catalog (IPv4/IPv6/domain, protocol, transport, TLS, country, provider) | Working | `src/db/v4.js`, `src/api/v1.js` |
 | Endpoint checks with graded levels (syntax → DNS → TCP → TLS → HTTP → proxy) | Working, never claims more than it measured | `src/core/scanner.js`, `src/core/health.js` |
+| Live CFnew source registry: 198 public lists (country VIP, SOCKS5, HTTP, residential, CF IPs, IPv6 ranges) with per-category live checks and manual or scheduled application into `yx` | Working; every read is live and reports per-source status | `src/config/sources.js`, `src/core/sources.js` |
 | Configuration engine with validation, scoring, rejection reasons | Working | `src/core/engine.js` |
 | Subscription serializers (sing-box, Clash, URI, Surge, Loon, QuanX) | Working, tests per format | `src/subscription/converters.js` |
 | Per-user subscription tokens, rotation, revocation, quotas, expiry headers | Working | `src/api/v1.js`, `src/index.js` |
@@ -123,6 +124,7 @@ miliconfig/
 │   │   ├── engine.js             # combination builder, validation, scoring, run records
 │   │   ├── scanner.js            # graded probes (DNS, TCP, TLS, HTTP, ECH)
 │   │   ├── ech.js                # ECH finder: ECHConfigList from HTTPS/SVCB over DoH
+│   │   ├── sources.js            # live CFnew source registry (probe, parse, apply to yx)
 │   │   ├── health.js             # scoring, labels, bounded concurrency
 │   │   ├── security.js           # PBKDF2, cookies, AES-GCM, password policy, CSRF helpers
 │   │   ├── runtime.js            # VLESS/Trojan/SS/xHTTP data plane + byte accounting

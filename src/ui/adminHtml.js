@@ -766,6 +766,7 @@ const ADMIN_JS = `
       '<div class="field"><label>' + esc(t('levels')) + '</label><div class="form-row">' +
         ['dns','tcp','tls','http'].map(function(l){ return '<label class="check"><input type="checkbox" name="levels" value="' + l + '" checked>' + l.toUpperCase() + '</label>'; }).join('') +
       '</div></div></div><div class="form-row"><button class="btn primary" type="submit">' + icon('scan') + esc(t('scanRun')) + '</button></div></form></section>';
+    html += sourcesCard();
     if (S.scanResult) {
       var r = S.scanResult;
       html += '<section class="card"><h2>' + esc(t('history')) + '</h2><div class="table-wrap"><table><thead><tr><th>Host</th><th>' + esc(t('status')) + '</th><th>Score</th><th>' + esc(t('latency')) + '</th><th>Details</th></tr></thead><tbody>' +
@@ -807,6 +808,45 @@ const ADMIN_JS = `
           '<td><button class="btn sm" data-act="ech-test" data-host="' + esc(e.host) + '">' + esc(t('check')) + '</button></td></tr>';
       }).join('') + '</tbody></table></div></section>' +
       '<div class="alert info"><div><b>' + esc(t('settingsNetwork')) + '</b>' + esc('DNS profile, TLS fingerprint and ECH settings are saved in Settings → Network.') + '</div></div>';
+    return html;
+  }
+
+  function sourcesCard(){
+    var s = S.sources || { categories: [], catalog: [], auto: {}, lastCheck: null };
+    var auto = s.auto || {};
+    var check = S.sourcesCheck || s.lastCheck || null;
+    var categories = s.categories || [];
+    var html = '<section class="card"><h2>CFnew sources (live)</h2>' +
+      '<div class="card-sub">Every list is read live from its origin, with no server-side cache. <b>Check</b> probes reachability, <b>Apply</b> writes the returned addresses into the preferred-node pool (yx), and the automation job repeats the same apply on a schedule.</div>' +
+      '<div class="table-wrap"><table><thead><tr><th>Category</th><th>Lists</th><th>Feeds yx</th><th>Status</th><th></th></tr></thead><tbody>' +
+      (categories.length ? categories.map(function(c){
+        var row = check && check.results ? check.results.filter(function(x){ return x.category === c.id; })[0] : null;
+        var status = row
+          ? badge(row.ok ? 'reachable' : 'failed', row.ok ? 'ok' : 'err') + '<div class="faint">' + esc(row.lines || 0) + ' lines · ' + esc(row.latencyMs || 0) + ' ms' + (row.error ? ' · ' + esc(row.error) : '') + '</div>'
+          : '<span class="faint">not checked</span>';
+        return '<tr><td><strong>' + esc(c.label) + '</strong><div class="faint mono">' + esc(c.id) + '</div></td>' +
+          '<td class="mono">' + esc(c.count) + '</td>' +
+          '<td>' + (c.appliesToYx ? badge('yes', 'ok') : badge('scanner only', 'info')) + '</td>' +
+          '<td>' + status + '</td>' +
+          '<td class="nowrap"><button class="btn sm" data-act="sources-check" data-cat="' + esc(c.id) + '">' + esc(t('check')) + '</button> ' +
+          (c.appliesToYx ? '<button class="btn sm primary" data-act="sources-apply" data-cat="' + esc(c.id) + '">Apply to yx</button>' : '') + '</td></tr>';
+      }).join('') : '<tr><td colspan="5">' + emptyState() + '</td></tr>') +
+      '</tbody></table></div></section>';
+    html += '<section class="card"><h2>Automatic CFnew sync</h2><div class="card-sub">The <span class="mono">sources-sync</span> job applies the selected categories into yx on the Cron Trigger. Existing manual entries are kept unless “replace” is enabled.</div>' +
+      '<div class="form-row"><label class="check"><input type="checkbox" id="srcAutoEnabled"' + (auto.enabled ? ' checked' : '') + '> Enabled</label>' +
+      '<label class="check"><input type="checkbox" id="srcAutoReplace"' + (auto.replace ? ' checked' : '') + '> Replace yx</label>' +
+      '<div class="field" style="max-width:150px"><label for="srcAutoInterval">Interval (min)</label><input id="srcAutoInterval" type="number" min="15" max="10080" value="' + esc(auto.intervalMinutes || 360) + '"></div>' +
+      '<div class="field" style="max-width:150px"><label for="srcAutoFamily">Family</label><select id="srcAutoFamily">' +
+        ['any','ipv4','ipv6'].map(function(f){ return '<option value="' + f + '"' + ((auto.family || 'any') === f ? ' selected' : '') + '>' + f.toUpperCase() + '</option>'; }).join('') + '</select></div>' +
+      '<div class="field" style="max-width:120px"><label for="srcAutoLimit">Limit</label><input id="srcAutoLimit" type="number" min="1" max="200" value="' + esc(auto.limit || 24) + '"></div></div>' +
+      '<div class="form-row" style="margin-top:8px">' +
+      categories.filter(function(c){ return c.appliesToYx; }).map(function(c){
+        var on = (auto.categories || []).indexOf(c.id) >= 0;
+        return '<label class="check"><input type="checkbox" id="srcAutoCat-' + esc(c.id) + '"' + (on ? ' checked' : '') + '> ' + esc(c.label) + '</label>';
+      }).join('') + '</div>' +
+      '<div class="form-row" style="margin-top:10px"><button class="btn primary" data-act="sources-auto-save">' + esc(t('save')) + '</button>' +
+      '<button class="btn" data-act="sources-check" data-cat="' + esc((auto.categories || ['cf-ip'])[0]) + '">' + esc(t('check')) + ' ' + esc((auto.categories || ['cf-ip'])[0]) + '</button></div>' +
+      '</section>';
     return html;
   }
 
@@ -990,7 +1030,7 @@ const ADMIN_JS = `
     if (page === 'endpoints') need(loadEndpoints);
     if (page === 'engine') { need(loadUsers); need(loadSettings); }
     if (page === 'subscriptions') need(loadSubscriptions);
-    if (page === 'scanner') return Promise.resolve();
+    if (page === 'scanner') { need(loadSources); return Promise.all(jobs); }
     if (page === 'dns') return loadDns();
     if (page === 'monitoring') { need(loadOverview); need(loadUsers); need(loadAutomation); }
     if (page === 'security') { need(loadAudit); }
@@ -1009,6 +1049,7 @@ const ADMIN_JS = `
   function loadCloudflare(){ return api('/cloudflare').then(function(d){ S.cf = d; }); }
   function loadCapabilities(){ return api('/capabilities').then(function(d){ S.capabilities = d; }); }
   function loadDns(){ return api('/dns').then(function(d){ S.dns = d; }); }
+  function loadSources(){ return api('/sources').then(function(d){ S.sources = d; }); }
   function loadAutomation(){ return api('/automation').then(function(d){ S.automation = d; }); }
 
   function renderAutomation(){
@@ -1204,6 +1245,51 @@ const ADMIN_JS = `
     if (act === 'settings-reset') {
       if (!confirm(t('confirmReset'))) return;
       api('/settings/reset', { method:'POST', body:{} }).then(function(){ toast(t('saved'),'ok'); return loadSettings(); }).then(render).catch(function(err){ toast(err.message,'err'); }); return;
+    }
+    if (act === 'sources-check') {
+      var cat = el.getAttribute('data-cat');
+      toast(t('loading'), 'ok');
+      api('/sources/check', { method:'POST', body:{ categories:[cat] } }).then(function(d){
+        S.sourcesCheck = d;
+        toast(cat + ': ' + d.okCount + '/' + d.results.length + ' live list(s) reachable', d.okCount ? 'ok' : 'err');
+        render();
+      }).catch(function(err){ toast(err.message, 'err'); });
+      return;
+    }
+    if (act === 'sources-apply') {
+      var applyCat = el.getAttribute('data-cat');
+      toast(t('loading'), 'ok');
+      api('/sources/apply', { method:'POST', body:{ categories:[applyCat], limit: 24 } }).then(function(d){
+        var added = d.applied ? d.applied.added.length : 0;
+        toast(added + ' address(es) added to yx from ' + d.sources.filter(function(x){ return x.ok; }).length + ' live list(s)', added ? 'ok' : 'err');
+        return loadSources();
+      }).then(render).catch(function(err){ toast(err.message, 'err'); });
+      return;
+    }
+    if (act === 'sources-auto-save') {
+      var cats = [];
+      Array.prototype.forEach.call(document.querySelectorAll('[id^="srcAutoCat-"]'), function(input){
+        if (input.checked) cats.push(input.id.replace('srcAutoCat-', ''));
+      });
+      var enabled = document.getElementById('srcAutoEnabled');
+      var replace = document.getElementById('srcAutoReplace');
+      var interval = document.getElementById('srcAutoInterval');
+      var family = document.getElementById('srcAutoFamily');
+      var limit = document.getElementById('srcAutoLimit');
+      api('/sources/auto', { method:'PUT', body:{
+        enabled: Boolean(enabled && enabled.checked),
+        replace: Boolean(replace && replace.checked),
+        intervalMinutes: Number(interval && interval.value) || 360,
+        family: (family && family.value) || 'any',
+        limit: Number(limit && limit.value) || 24,
+        categories: cats
+      } }).then(function(d){
+        S.sources = S.sources || {};
+        S.sources.auto = d.auto;
+        toast(t('saved'), 'ok');
+        render();
+      }).catch(function(err){ toast(err.message, 'err'); });
+      return;
     }
     if (act === 'dns-test') {
       toast(t('loading'), 'ok');

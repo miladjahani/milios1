@@ -265,6 +265,14 @@ function builtinEndpointSeeds() {
   }));
 }
 
+export const AUTOMATION_JOB_SEEDS = [
+  { id: 'job-health', name: 'Endpoint health refresh', kind: 'health', interval: 60 },
+  { id: 'job-expiry', name: 'Expired user detection', kind: 'expiry', interval: 360 },
+  { id: 'job-quota', name: 'Quota exhaustion detection', kind: 'quota', interval: 360 },
+  { id: 'job-config', name: 'Configuration validation', kind: 'config-validation', interval: 720 },
+  { id: 'job-sources', name: 'CFnew source sync', kind: 'sources-sync', interval: 360, enabled: false }
+];
+
 function seedMemory() {
   if (memory.endpoints.size) return;
   const now = Date.now();
@@ -280,15 +288,10 @@ function seedMemory() {
       createdAt: now, updatedAt: now
     });
   }
-  const nowJobs = [
-    { id: 'job-health', name: 'Endpoint health refresh', kind: 'health', interval: 60 },
-    { id: 'job-expiry', name: 'Expired user detection', kind: 'expiry', interval: 360 },
-    { id: 'job-quota', name: 'Quota exhaustion detection', kind: 'quota', interval: 360 },
-    { id: 'job-config', name: 'Configuration validation', kind: 'config-validation', interval: 720 }
-  ];
+  const nowJobs = AUTOMATION_JOB_SEEDS;
   for (const job of nowJobs) {
     memory.jobs.set(job.id, {
-      id: job.id, name: job.name, kind: job.kind, enabled: true,
+      id: job.id, name: job.name, kind: job.kind, enabled: job.enabled !== false,
       intervalMinutes: job.interval, lastRunAt: 0, nextRunAt: 0,
       lastStatus: '', lastError: '', runCount: 0, createdAt: now
     });
@@ -319,22 +322,18 @@ async function seedEndpoints(env) {
   }
 }
 
+// `sources-sync` stays disabled until the administrator turns on automatic
+// CFnew source syncing in the panel (see core/sources.js).
 async function seedAutomationJobs(env) {
-  const jobs = [
-    { id: 'job-health', name: 'Endpoint health refresh', kind: 'health', interval: 60 },
-    { id: 'job-expiry', name: 'Expired user detection', kind: 'expiry', interval: 360 },
-    { id: 'job-quota', name: 'Quota exhaustion detection', kind: 'quota', interval: 360 },
-    { id: 'job-config', name: 'Configuration validation', kind: 'config-validation', interval: 720 }
-  ];
   const now = Date.now();
-  for (const job of jobs) {
+  for (const job of AUTOMATION_JOB_SEEDS) {
     try {
       await run(
         env,
         `INSERT OR IGNORE INTO automation_jobs
           (id, name, kind, enabled, interval_minutes, last_run_at, next_run_at, last_status, last_error, run_count, created_at)
-         VALUES (?, ?, ?, 1, ?, 0, 0, '', '', 0, ?)`,
-        job.id, job.name, job.kind, job.interval, now
+         VALUES (?, ?, ?, ?, ?, 0, 0, '', '', 0, ?)`,
+        job.id, job.name, job.kind, job.enabled === false ? 0 : 1, job.interval, now
       );
     } catch (_e) {}
   }
@@ -963,6 +962,19 @@ export async function setAutomationJobEnabled(env, id, enabled) {
     return job;
   }
   await run(env, `UPDATE automation_jobs SET enabled = ? WHERE id = ?`, enabled ? 1 : 0, id);
+  return await getAutomationJob(env, id);
+}
+
+export async function setAutomationJobInterval(env, id, minutes) {
+  await ensureV4Schema(env);
+  const interval = Math.max(1, Math.min(10080, parseInt(minutes, 10) || 60));
+  if (state.memory) {
+    const job = memory.jobs.get(id);
+    if (!job) return null;
+    job.intervalMinutes = interval;
+    return job;
+  }
+  await run(env, `UPDATE automation_jobs SET interval_minutes = ? WHERE id = ?`, interval, id);
   return await getAutomationJob(env, id);
 }
 
