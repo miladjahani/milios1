@@ -795,7 +795,7 @@ const ADMIN_JS = `
           '<td>' + esc(p.filtering) + '</td><td><a href="' + esc(p.source) + '" target="_blank" rel="noopener">docs</a></td>' +
           '<td><button class="btn sm" data-act="dns-test" data-id="' + esc(p.id) + '">' + esc(t('test')) + '</button></td></tr>';
       }).join('') + '</tbody></table></div></section>';
-    html += '<section class="card"><h2>ECH Finder</h2><div class="card-sub">Reads the ECHConfigList published in a hostname\'s HTTPS/SVCB record through DoH. When ECH is enabled those configs are embedded in the subscription links; if a host has no record the links fall back to the domain + resolver form.</div>' +
+    html += '<section class="card"><h2>ECH Finder</h2><div class="card-sub">Reads the ECHConfigList that a hostname publishes in its HTTPS/SVCB record through DoH. When ECH is enabled those configs are embedded in the subscription links; if a host has no record the links fall back to the domain + resolver form.</div>' +
       '<div class="form-row"><div class="field" style="min-width:260px"><label for="echFindHost">Hostname</label><input id="echFindHost" class="mono" placeholder="cloudflare-ech.com"></div>' +
       '<div class="field" style="max-width:170px"><label>&nbsp;</label><button class="btn" type="button" data-act="ech-find">Find ECH config</button></div></div>' +
       '<div id="echFindResult" class="faint" style="margin-top:10px"></div></section>' +
