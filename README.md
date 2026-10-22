@@ -28,7 +28,7 @@ the Worker's own probe results, or an explicitly labelled "not available" state.
 | Area | Status | Where it is implemented |
 | --- | --- | --- |
 | First-run administrator setup, no default password | Working | `src/api/v1.js` (`/auth/setup`), `src/db/d1.js` |
-| PBKDF2-SHA256 password hashing, session cookies, revocation, login rate limiting | Working | `src/core/security.js`, `src/db/v4.js` |
+| PBKDF2-SHA256 password hashing (adaptive work factor), session cookies, revocation, login rate limiting, `MILI_ADMIN_PASSWORD` recovery | Working | `src/core/security.js`, `src/db/d1.js`, `src/db/v4.js` |
 | Five-user hard limit, enforced transactionally in SQL | Working, covered by tests | `src/db/d1.js` (`INSERT … SELECT … WHERE COUNT(*) < 5`) |
 | Persistent user CRUD, quota, expiry, node scope, per-user UUID | Working | `src/api/v1.js`, `src/db/d1.js` |
 | Endpoint catalog (IPv4/IPv6/domain, protocol, transport, TLS, country, provider) | Working | `src/db/v4.js`, `src/api/v1.js` |
@@ -69,7 +69,7 @@ Open the printed URL, choose an administrator password (10+ characters, two char
 and the panel opens at `/admin`. The local database lives in `.dev/miliconfig.sqlite`.
 
 ```bash
-npm test               # 64 automated tests (node:test + real SQLite D1 adapter)
+npm test               # 75 automated tests (node:test + real SQLite D1 adapter)
 npm run check:schema   # apply schema.sql + migrations/*.sql to a throwaway database
 npm run build          # dist/_worker.js, public/_worker.js, _worker.js
 npm run deploy:pages   # one-command Cloudflare Pages (pages.dev) deployment
@@ -90,6 +90,10 @@ wrangler deploy
 
 Open the deployed URL, complete the first-run setup, then sign in. Full instructions, Pages
 variant, CI/CD notes and rollback steps: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
+Locked out? Set a `MILI_ADMIN_PASSWORD` secret and sign in with it: the Worker keeps the
+administrator password in sync with that secret, which also repairs password hashes written by an
+older build (those used 210 000 PBKDF2 iterations, above the runtime's 100 000 ceiling).
 
 ### pages.dev (Cloudflare Pages)
 
@@ -118,6 +122,7 @@ miliconfig/
 │   ├── core/
 │   │   ├── engine.js             # combination builder, validation, scoring, run records
 │   │   ├── scanner.js            # graded probes (DNS, TCP, TLS, HTTP, ECH)
+│   │   ├── ech.js                # ECH finder: ECHConfigList from HTTPS/SVCB over DoH
 │   │   ├── health.js             # scoring, labels, bounded concurrency
 │   │   ├── security.js           # PBKDF2, cookies, AES-GCM, password policy, CSRF helpers
 │   │   ├── runtime.js            # VLESS/Trojan/SS/xHTTP data plane + byte accounting

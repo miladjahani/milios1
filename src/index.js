@@ -20,6 +20,7 @@ import {
   listUsers,
   loadGlobalConfig,
   recordUserActivity,
+  syncEnvAdminPassword,
   verifyAdminSession
 } from './db/d1.js';
 import {
@@ -195,6 +196,9 @@ export default {
     try {
       await ensureD1Schema(env);
       await ensureV4Schema(env);
+      // MILI_ADMIN_PASSWORD (when set) owns the administrator password, and is
+      // the recovery path when the stored hash cannot be derived on this runtime.
+      await syncEnvAdminPassword(env);
       const databaseReady = databaseConfigured(env);
 
       const adminUuid = await getOrCreateAdminPath(env);

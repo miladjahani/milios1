@@ -19,6 +19,7 @@ import {
   normalizeEffectiveConfig,
   parseNodePorts
 } from '../config/defaults.js';
+import { findEchConfig } from '../core/ech.js';
 import {
   createMiliNodeNamer,
   encodeBase64Utf8,
@@ -87,10 +88,14 @@ export async function selectFallbackProxyAddress(workerRegion = '', enableRegion
 }
 
 // ============================================================================
-// مقدار پارامتر ECH در لینک‌ها — همان قالب قبلی: «دامنه ECH + آدرس DNS»
+// مقدار پارامتر ECH در لینک‌ها
+// اگر ECH Finder مقدار واقعی ECHConfigList را از رکورد HTTPS/SVCB خوانده باشد،
+// همان کانفیگ داخل لینک می‌نشیند؛ وگرنه قالب «دامنه ECH + آدرس DNS» حفظ می‌شود.
 // ============================================================================
 export function buildEchParamValue(cfg = {}) {
   if (cfg.ech !== 'yes') return '';
+  const resolved = String(cfg.echConfigBase64 || '').trim();
+  if (resolved) return resolved;
   const dnsVal = cfg.customDNS || CONFIG_DEFAULTS.customDNS;
   const echDomain = cfg.customECHDomain || CONFIG_DEFAULTS.customECHDomain;
   return `${echDomain}+${dnsVal}`;
@@ -206,10 +211,22 @@ export function filterAddressFamily(list, cfg = {}) {
   });
 }
 
+// آی‌پی‌های ثابت به‌صورت متناوب IPv4/IPv6 چیده می‌شوند تا خانوادهٔ IPv6 با وجود
+// سقف تعداد نود (subNodeCount) هرگز از ساب‌لینک حذف نشود.
 export function getStaticCfAddresses(cfg = {}) {
   const v4 = cfg.ipv4 === 'no' ? [] : OFFICIAL_DIRECT_IPS.slice();
   const v6 = cfg.ipv6 === 'no' ? [] : OFFICIAL_DIRECT_IPV6.slice();
-  return [...v4, ...v6];
+  if (!v6.length) return v4;
+  if (!v4.length) return v6;
+  const out = [];
+  const every = Math.max(1, Math.ceil(v4.length / v6.length));
+  let v6Index = 0;
+  for (let i = 0; i < v4.length; i++) {
+    out.push(v4[i]);
+    if ((i + 1) % every === 0 && v6Index < v6.length) out.push(v6[v6Index++]);
+  }
+  while (v6Index < v6.length) out.push(v6[v6Index++]);
+  return out;
 }
 
 // ساخت نودهای چندلوکیشن: آدرس = آی‌پی ثابت CF، و پروکسی کشور از طریق ?s= در مسیر ws
@@ -666,6 +683,8 @@ function buildXhttpLinks(list, userUuid, workerHost, cfg, namer) {
 export async function generateUserNodesList(userOrConfig, workerHost, queryOverrides = {}) {
   const rawCfg = userOrConfig?.config ? userOrConfig.config : (userOrConfig || {});
   const cfg = normalizeEffectiveConfig(rawCfg);
+  // ECH Finder result resolved for this request (see handleSubscriptionResponse).
+  if (queryOverrides.echConfigBase64) cfg.echConfigBase64 = String(queryOverrides.echConfigBase64);
   const userUuid = String(userOrConfig?.uuid || queryOverrides.uuid || '351c9981-04b6-4103-aa4b-864aa9c91469').toLowerCase();
   const nodeScope = queryOverrides.scope || userOrConfig?.nodeScope || 'all';
   const wkOverride = (queryOverrides.wk || cfg.wk || '').trim().toUpperCase();
@@ -686,13 +705,29 @@ export async function generateUserNodesList(userOrConfig, workerHost, queryOverr
   // شادوساکس هیچ‌وقت پارامتر fragment نمی‌گیرد و همیشه در سابلینک می‌ماند.
   cfg.fragmentValue = buildFragmentValue(cfg);
 
-  function appendFromSource(sourceList) {
+  function appendFromSource(sourceList, options = {}) {
     const safeList = filterAddressFamily(sourceList, cfg);
     if (!Array.isArray(safeList) || safeList.length === 0) return;
-    if (evEnabled) protoGroups.vless.push(...buildVlessLinks(safeList, userUuid, workerHost, cfg, namer, wkOverride));
-    if (etEnabled) protoGroups.trojan.push(...buildTrojanLinks(safeList, userUuid, workerHost, cfg, namer, wkOverride));
-    if (exEnabled) protoGroups.xhttp.push(...buildXhttpLinks(safeList, userUuid, workerHost, cfg, namer));
-    if (esEnabled) protoGroups.ss.push(...buildShadowsocksLinks(safeList, userUuid, workerHost, cfg, namer));
+    const add = (key, links) => {
+      if (!links.length) return;
+      if (options.front) protoGroups[key].unshift(...links);
+      else protoGroups[key].push(...links);
+    };
+    if (evEnabled) add('vless', buildVlessLinks(safeList, userUuid, workerHost, cfg, namer, wkOverride));
+    if (etEnabled) add('trojan', buildTrojanLinks(safeList, userUuid, workerHost, cfg, namer, wkOverride));
+    if (exEnabled) add('xhttp', buildXhttpLinks(safeList, userUuid, workerHost, cfg, namer));
+    if (esEnabled) add('ss', buildShadowsocksLinks(safeList, userUuid, workerHost, cfg, namer));
+  }
+
+  function hasIpv6Node() {
+    const all = [...protoGroups.vless, ...protoGroups.trojan, ...protoGroups.xhttp];
+    return all.some(link => /@\[[0-9a-f:]+\]:/i.test(link));
+  }
+
+  // ۰) دامنهٔ خودِ ورکر همیشه در ابتدای ساب‌لینک است تا کاربر بتواند مستقیماً با
+  // دامنهٔ پنل (workers.dev یا دامنهٔ سفارشی) وصل شود.
+  if (workerHost) {
+    appendFromSource([{ ip: workerHost, port: 443, isp: 'Worker-Domain' }], { front: true });
   }
 
   // چندلوکیشن: پروکسی‌های کشوری به‌عنوان زنجیره خروجی سمت ورکر استفاده می‌شوند، نه به‌عنوان آدرس نود.
@@ -819,6 +854,15 @@ export async function generateUserNodesList(userOrConfig, workerHost, queryOverr
     appendFromSource([{ ip: workerHost, port: 443, isp: 'Origin' }]);
   }
 
+  // تضمین حضور IPv6: اگر هیچ نود IPv6 ساخته نشده باشد، آی‌پی‌های ثابت IPv6 کلادفلر
+  // با اولویت بالا اضافه می‌شوند تا پیش از اعمال سقف تعداد نود در ساب‌لینک بمانند.
+  if (cfg.ipv6 !== 'no' && !hasIpv6Node()) {
+    appendFromSource(
+      OFFICIAL_DIRECT_IPV6.slice(0, 3).map(ip => ({ ip, port: 443, isp: 'CF-IPv6' })),
+      { front: true }
+    );
+  }
+
   // چیدمان چرخشی پروتکل‌ها: vless → trojan → ss → xhttp → تکرار
   const balancedLinks = interleaveProtocols(protoGroups);
   if (balancedLinks.length) rawLinks.push(...balancedLinks);
@@ -862,6 +906,20 @@ export async function handleSubscriptionResponse(request, userOrConfig, url = nu
   const rawCfg = userOrConfig?.config ? userOrConfig.config : (userOrConfig || {});
   const cfg = normalizeEffectiveConfig(rawCfg);
 
+  // ECH Finder: با فعال بودن ECH، کانفیگ واقعی از رکورد HTTPS/SVCB دامنهٔ ECH
+  // خوانده می‌شود و در پارامتر ech لینک‌ها می‌نشیند. اگر رکوردی نبود، همان
+  // قالب «دامنه + DNS» به‌عنوان جایگزین استفاده می‌شود.
+  if (cfg.ech === 'yes') {
+    const echSource = String(cfg.customECHDomain || '').trim() || workerHost;
+    const found = await findEchConfig(echSource);
+    if (found.ok && found.echConfig) {
+      cfg.echConfigBase64 = found.echConfig;
+      cfg.echConfigSource = 'finder';
+    } else {
+      cfg.echConfigSource = 'resolver';
+    }
+  }
+
   // بررسی وضعیت فعال بودن، حجم و انقضای کاربر
   if (userOrConfig && userOrConfig.enabled === false) {
     const disabledNode = `vless://00000000-0000-0000-0000-000000000000@127.0.0.1:443?encryption=none&security=tls&type=ws#${encodeURIComponent('1+' + BRAND_NAME)}`;
@@ -886,7 +944,8 @@ export async function handleSubscriptionResponse(request, userOrConfig, url = nu
     country: url.searchParams.get('country') || '',
     scope: url.searchParams.get('scope') || userOrConfig?.nodeScope || 'all',
     limit: url.searchParams.get('limit') !== null ? url.searchParams.get('limit') : undefined,
-    catalogEndpoints: Array.isArray(catalogEndpoints) ? catalogEndpoints : []
+    catalogEndpoints: Array.isArray(catalogEndpoints) ? catalogEndpoints : [],
+    echConfigBase64: cfg.echConfigBase64 || ''
   };
 
   const finalLinks = await generateUserNodesList(userOrConfig, workerHost, queryOverrides);
@@ -967,6 +1026,7 @@ export async function handleSubscriptionResponse(request, userOrConfig, url = nu
 
   if (cfg.ech === 'yes') {
     headers['X-ECH-Status'] = 'ENABLED';
+    headers['X-ECH-Source'] = cfg.echConfigSource || 'resolver';
   }
 
   return new Response(bodyContent, { headers });

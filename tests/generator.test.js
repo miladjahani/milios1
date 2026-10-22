@@ -4,10 +4,13 @@ import {
   buildEchParamValue,
   buildFragmentValue,
   filterAddressFamily,
+  generateUserNodesList,
+  getStaticCfAddresses,
   getXhttpPaddingMeta,
   parseCustomPreferredString
 } from '../src/subscription/generator.js';
-import { parseNodePorts } from '../src/config/defaults.js';
+import { OFFICIAL_DIRECT_IPV6, parseNodePorts } from '../src/config/defaults.js';
+import { parseHttpsRecord } from '../src/core/ech.js';
 import { createMiliNodeNamer, finalizeMiliSubscriptionLinks } from '../src/core/utils.js';
 
 test('node naming is sequential number+brand', () => {
@@ -62,6 +65,64 @@ test('custom preferred strings separate IPs, domains and proxies', () => {
   // پورت غیر کلادفلر یعنی پروکسی خروجی، و خطوط دارای اسکیم عمداً رد می‌شوند
   assert.equal(parsed.proxyList.length, 1);
   assert.equal(parsed.proxyList[0].proxy, 'socks5://127.0.0.1:1080');
+});
+
+test('static addresses interleave IPv6 so the family survives a node cap', () => {
+  const addresses = getStaticCfAddresses({ ipv4: 'yes', ipv6: 'yes' });
+  const firstV6 = addresses.findIndex(host => host.includes(':'));
+  assert.ok(firstV6 > -1, 'IPv6 addresses are present');
+  assert.ok(firstV6 < 12, 'IPv6 appears near the top of the list');
+  assert.equal(getStaticCfAddresses({ ipv4: 'yes', ipv6: 'no' }).some(h => h.includes(':')), false);
+  assert.deepEqual(getStaticCfAddresses({ ipv4: 'no', ipv6: 'yes' }), OFFICIAL_DIRECT_IPV6);
+});
+
+test('subscriptions always carry the worker hostname and an IPv6 node', async () => {
+  const host = 'worker.example.workers.dev';
+  const links = await generateUserNodesList(
+    { uuid: '11111111-2222-4333-8444-555555555555', config: { ipv4: 'yes', ipv6: 'yes', epi: 'no', epd: 'no', egi: 'no', subNodeCount: 24 } },
+    host,
+    {}
+  );
+  assert.ok(links.length > 0);
+  assert.ok(links.some(link => link.includes(`@${host}:`)), 'worker domain node is present');
+  assert.ok(links.some(link => /@\[[0-9a-f:]+\]:/i.test(link)), 'IPv6 node is present');
+});
+
+test('a resolved ECH config is embedded in subscription links', async () => {
+  const config = 'AEX+DQBBZQAgACDUmCueSsIzuOt4qSVY1vYbcSdiljW6';
+  const links = await generateUserNodesList(
+    { uuid: '11111111-2222-4333-8444-555555555555', config: { ipv4: 'yes', ipv6: 'no', ech: 'yes', epi: 'no', epd: 'no', egi: 'no', subNodeCount: 8 } },
+    'worker.example.workers.dev',
+    { echConfigBase64: config }
+  );
+  assert.ok(links.length > 0);
+  assert.ok(links.some(link => link.includes(`ech=${encodeURIComponent(config)}`)), 'links carry the found config');
+});
+
+test('IPv6 can be switched off completely', async () => {
+  const links = await generateUserNodesList(
+    { uuid: '11111111-2222-4333-8444-555555555555', config: { ipv4: 'yes', ipv6: 'no', epi: 'no', epd: 'no', egi: 'no', subNodeCount: 12 } },
+    'worker.example.workers.dev',
+    {}
+  );
+  assert.ok(links.length > 0);
+  assert.equal(links.some(link => /@\[[0-9a-f:]+\]:/i.test(link)), false);
+});
+
+test('ECH finder parses the config from an HTTPS record and links use it', () => {
+  const record = '1 . alpn=h3,h2 ipv4hint=104.21.70.196 ech=AEX+DQBBegAgACC7qEZkgW2KJxglVK52B5L+RN3FIyTY0YGe9CBJrCxaRwAEAAEAAQASY2xvdWRmbGFyZS1lY2guY29tAAA= ipv6hint=2606:4700::1';
+  const parsed = parseHttpsRecord(record);
+  assert.deepEqual(parsed.alpn, ['h3', 'h2']);
+  assert.equal(parsed.ipv4hint[0], '104.21.70.196');
+  assert.match(parsed.echConfig, /^AEX\+DQBB/);
+
+  const cfg = { ech: 'yes', customDNS: 'https://1.1.1.1/dns-query', customECHDomain: 'cloudflare-ech.com' };
+  assert.equal(
+    buildEchParamValue({ ...cfg, echConfigBase64: parsed.echConfig }),
+    parsed.echConfig
+  );
+  assert.equal(buildEchParamValue(cfg), 'cloudflare-ech.com+https://1.1.1.1/dns-query');
+  assert.equal(buildEchParamValue({ ...cfg, ech: 'no', echConfigBase64: parsed.echConfig }), '');
 });
 
 test('xHTTP padding metadata is derived and stable', () => {

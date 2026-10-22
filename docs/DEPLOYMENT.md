@@ -45,11 +45,27 @@ Do **not** put a Cloudflare API token, administrator password or any credential 
 `[vars]` or the repository. The administrator password is chosen on first visit; the Cloudflare token
 is entered in the panel.
 
+### Administrator password recovery
+
+If sign-in fails with `PASSWORD_UNVERIFIABLE`, the stored record was hashed with more PBKDF2
+iterations than the runtime allows (older builds used 210 000; workerd rejects anything above
+100 000), so no password can ever match it. Set a secret and sign in with it:
+
+```bash
+wrangler secret put MILI_ADMIN_PASSWORD     # Workers
+# Pages: Settings → Environment variables → add MILI_ADMIN_PASSWORD as a secret
+```
+
+The Worker hashes it with the strongest work factor the runtime accepts, stores the new record and
+revokes existing sessions. Change that secret later and the password follows; change the password
+in the panel instead and it stays in force until the secret itself changes. The same secret also
+bootstraps a fresh install when you prefer not to use the setup form.
+
 ## 4. Deploy the Worker
 
 ```bash
 npm install
-npm test                 # 64 tests must pass
+npm test                 # 75 tests must pass
 npm run check:schema     # schema + migrations validate
 npm run build            # dist/_worker.js, public/_worker.js, _worker.js
 wrangler deploy

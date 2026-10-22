@@ -27,6 +27,7 @@ const MODULE_ORDER = [
   'src/config/schema.js',
   'src/core/health.js',
   'src/core/engine.js',
+  'src/core/ech.js',
   'src/core/scanner.js',
   'src/ui/icons.js',
   'src/db/d1.js',

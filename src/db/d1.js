@@ -13,7 +13,7 @@ import {
 } from '../config/defaults.js';
 import { buildUserDefaultConfig } from '../config/presets.js';
 import { generateShortId, generateUuidV4, isValidUuid, sha256Hex } from '../core/utils.js';
-import { hashPassword, passwordPolicy, verifyPassword } from '../core/security.js';
+import { describePasswordRecord, hashPassword, passwordPolicy, timingSafeEqual, verifyPassword } from '../core/security.js';
 // Session helpers live in the v4 layer; the import is intentional despite the
 // module cycle (d1 ↔ v4) because both sides only call each other at request
 // time, never during module evaluation.
@@ -30,6 +30,7 @@ const memoryStore = {
   trafficHourly: new Map(),
   lastSyncAt: 0,
   adminPasswordHash: '',
+  envPasswordDigest: '',
   adminPath: ''
 };
 
@@ -371,6 +372,128 @@ export async function hasAdminPassword(env = {}) {
   return Boolean(hash && hash.length > 0);
 }
 
+/**
+ * Report how the stored administrator password can be verified. `derivable` is
+ * false when the record was written with an iteration count this runtime cannot
+ * derive (for example a 210 000-iteration hash from an older build), which is
+ * the only state where a correct password can never sign in.
+ */
+export async function getAdminPasswordDiagnostics(env = {}) {
+  const hash = await getAdminPasswordHash(env);
+  const info = describePasswordRecord(hash);
+  return {
+    ...info,
+    // The environment override always provides a way back in.
+    envOverride: hasEnvAdminPassword(env)
+  };
+}
+
+function envAdminPassword(env = {}) {
+  const raw = env?.MILI_ADMIN_PASSWORD ?? env?.MILICONFIG_ADMIN_PASSWORD ?? env?.ADMIN_PASSWORD;
+  if (raw === undefined || raw === null) return '';
+  if (typeof raw === 'object') return '';
+  return String(raw);
+}
+
+export function hasEnvAdminPassword(env = {}) {
+  return envAdminPassword(env).trim().length > 0;
+}
+
+/**
+ * Constant-time check of the environment password. Used to keep the documented
+ * recovery path open even after an IP has tripped the login rate limiter, which
+ * is easy to do while locked out.
+ */
+export function matchesEnvAdminPassword(env = {}, candidate = '') {
+  const expected = envAdminPassword(env).trim();
+  if (!expected) return false;
+  return timingSafeEqual(String(candidate || ''), expected);
+}
+
+// Marker proving the environment password was already applied, so the (fairly
+// expensive) hash is only recomputed when the secret actually changes.
+const ENV_PASSWORD_MARKER = 'admin_password_env_digest';
+
+async function readSystemValue(env, key) {
+  const detectedD1 = detectD1Binding(env);
+  if (detectedD1 && memoryStore.d1SchemaReady) {
+    try {
+      const row = await detectedD1.db.prepare('SELECT value FROM system_config WHERE key = ?').bind(key).first();
+      if (row && row.value !== undefined) return String(row.value);
+    } catch (_e) {}
+  }
+  const detectedKv = detectKvBinding(env);
+  if (detectedKv) {
+    try {
+      const value = await detectedKv.kv.get(key);
+      if (value !== null && value !== undefined) return String(value);
+    } catch (_e) {}
+  }
+  return '';
+}
+
+async function writeSystemValue(env, key, value) {
+  const now = Date.now();
+  const detectedD1 = detectD1Binding(env);
+  if (detectedD1 && memoryStore.d1SchemaReady) {
+    try {
+      await safeBind(
+        detectedD1.db.prepare(
+          `INSERT INTO system_config (key, value, updated_at) VALUES (?, ?, ?)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+        ),
+        key,
+        value,
+        now
+      ).run();
+    } catch (_e) {}
+  }
+  const detectedKv = detectKvBinding(env);
+  if (detectedKv) {
+    try { await detectedKv.kv.put(key, value); } catch (_e) {}
+  }
+}
+
+/**
+ * Keep the administrator password in sync with the MILI_ADMIN_PASSWORD secret.
+ *
+ * This is the documented way back in when the stored hash cannot be derived on
+ * this runtime (see getAdminPasswordDiagnostics) and it also lets an operator
+ * rotate the password by editing the Worker secret. Passwords changed from the
+ * panel stay in force until the secret itself changes.
+ */
+export async function syncEnvAdminPassword(env = {}) {
+  const password = envAdminPassword(env).trim();
+  if (!password) return { applied: false, reason: 'no-env-password' };
+  const policy = passwordPolicy(password);
+  if (!policy.ok) {
+    return { applied: false, reason: 'weak-env-password', message: policy.message };
+  }
+
+  const digest = await sha256Hex(`env-admin:${password}`);
+  if (memoryStore.envPasswordDigest === digest) return { applied: false, reason: 'cached' };
+
+  try {
+    await ensureD1Schema(env);
+    const stored = await readSystemValue(env, ENV_PASSWORD_MARKER);
+    if (stored && stored === digest) {
+      memoryStore.envPasswordDigest = digest;
+      return { applied: false, reason: 'already-applied' };
+    }
+
+    const hash = await hashPassword(password);
+    memoryStore.adminPasswordHash = hash;
+    await writeSystemValue(env, 'admin_password_hash', hash);
+    await writeSystemValue(env, ENV_PASSWORD_MARKER, digest);
+    memoryStore.envPasswordDigest = digest;
+    try { await revokeAllAdminSessions(env); } catch (_e) {}
+    await addAuditLog(env, 'همگام‌سازی رمز مدیر از متغیر محیطی', 'Admin password synced from MILI_ADMIN_PASSWORD', '');
+    return { applied: true };
+  } catch (err) {
+    return { applied: false, reason: 'error', message: String(err?.message || err) };
+  }
+}
+
 export async function setAdminPassword(env = {}, plainPassword, clientIp = '') {
   const cleanPass = String(plainPassword || '').trim();
   const policy = passwordPolicy(cleanPass);
@@ -468,23 +591,30 @@ export async function verifyAdminPassword(env = {}, candidatePassword) {
   const hash = await getAdminPasswordHash(env);
   if (!hash) return false;
   const result = await verifyPassword(cleanPass, hash);
+  // A record this runtime cannot derive is not a wrong password: the caller
+  // reports the reset path from getAdminPasswordDiagnostics instead.
   if (!result.ok) return false;
 
   // ارتقای خودکار هش قدیمی SHA-256 به PBKDF2 پس از ورود موفق
   if (result.needsRehash) {
     try {
       const upgraded = await hashPassword(cleanPass);
-      memoryStore.adminPasswordHash = upgraded;
-      const detectedD1 = detectD1Binding(env);
-      if (detectedD1 && memoryStore.d1SchemaReady) {
-        await detectedD1.db.prepare(
-          `INSERT INTO system_config (key, value, updated_at) VALUES ('admin_password_hash', ?, ?)
-           ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
-        ).bind(upgraded, Date.now()).run();
+      const upgradedInfo = describePasswordRecord(upgraded);
+      // Only replace the record when the new work factor is genuinely stronger;
+      // a runtime with a lower PBKDF2 ceiling would otherwise rehash on every login.
+      if (upgradedInfo.iterations > (describePasswordRecord(hash).iterations || 0)) {
+        memoryStore.adminPasswordHash = upgraded;
+        const detectedD1 = detectD1Binding(env);
+        if (detectedD1 && memoryStore.d1SchemaReady) {
+          await detectedD1.db.prepare(
+            `INSERT INTO system_config (key, value, updated_at) VALUES ('admin_password_hash', ?, ?)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+          ).bind(upgraded, Date.now()).run();
+        }
+        const detectedKv = detectKvBinding(env);
+        if (detectedKv) await detectedKv.kv.put('admin_password_hash', upgraded);
+        await addAuditLog(env, 'ارتقای الگوریتم رمز عبور', 'Password hash upgraded to PBKDF2', '');
       }
-      const detectedKv = detectKvBinding(env);
-      if (detectedKv) await detectedKv.kv.put('admin_password_hash', upgraded);
-      await addAuditLog(env, 'ارتقای الگوریتم رمز عبور', 'Password hash upgraded to PBKDF2', '');
     } catch (_e) {}
   }
   return true;

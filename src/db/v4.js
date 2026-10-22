@@ -237,19 +237,44 @@ export async function ensureV4Schema(env = {}) {
   }
 }
 
+// Seed catalog: a small but varied set of Cloudflare edge addresses. Protocols
+// and transports rotate so a fresh install already offers vless/ws, vless/xhttp,
+// trojan/ws and shadowsocks/ws nodes on both address families instead of a
+// single protocol on IPv4 only.
+const BUILTIN_PROTOCOL_VARIANTS = [
+  { protocol: 'vless', transport: 'ws' },
+  { protocol: 'vless', transport: 'xhttp' },
+  { protocol: 'trojan', transport: 'ws' },
+  { protocol: 'shadowsocks', transport: 'ws' }
+];
+
+function builtinEndpointSeeds() {
+  const v4 = OFFICIAL_DIRECT_IPS.slice(0, 8).map((ip, idx) => ({
+    host: ip,
+    family: 'ipv4',
+    name: `Cloudflare anycast ${idx + 1}`
+  }));
+  const v6 = OFFICIAL_DIRECT_IPV6.slice(0, 6).map((ip, idx) => ({
+    host: ip,
+    family: 'ipv6',
+    name: `Cloudflare IPv6 ${idx + 1}`
+  }));
+  return [...v4, ...v6].map((seed, idx) => ({
+    ...seed,
+    ...BUILTIN_PROTOCOL_VARIANTS[idx % BUILTIN_PROTOCOL_VARIANTS.length]
+  }));
+}
+
 function seedMemory() {
   if (memory.endpoints.size) return;
   const now = Date.now();
-  const seeds = [
-    ...OFFICIAL_DIRECT_IPS.slice(0, 4).map((ip, idx) => ({ host: ip, family: 'ipv4', name: `Cloudflare anycast ${idx + 1}` })),
-    ...OFFICIAL_DIRECT_IPV6.slice(0, 2).map((ip, idx) => ({ host: ip, family: 'ipv6', name: `Cloudflare IPv6 ${idx + 1}` }))
-  ];
+  const seeds = builtinEndpointSeeds();
   for (const seed of seeds) {
     const id = `ep-builtin-${memory.endpoints.size + 1}`;
     memory.endpoints.set(id, {
       id, name: seed.name, host: seed.host, port: 443, family: seed.family,
       kind: 'cloudflare', country: '', region: '', provider: 'Cloudflare',
-      protocol: 'vless', transport: 'ws', tlsMode: 'tls', source: 'builtin',
+      protocol: seed.protocol, transport: seed.transport, tlsMode: 'tls', source: 'builtin',
       enabled: true, healthScore: 0, lastLatencyMs: 0, lastCheckAt: 0,
       lastCheckLevel: '', failureCount: 0, notes: '',
       createdAt: now, updatedAt: now
@@ -273,13 +298,10 @@ function seedMemory() {
 async function seedEndpoints(env) {
   if (state.endpointsSeeded) return;
   state.endpointsSeeded = true;
-  const existing = await first(env, 'SELECT COUNT(*) AS cnt FROM endpoints');
-  if (Number(existing?.cnt || 0) > 0) return;
+  // Builtin rows use stable ids, so INSERT OR IGNORE extends an existing catalog
+  // with new seed variants without ever overwriting administrator edits.
   const now = Date.now();
-  const seeds = [
-    ...OFFICIAL_DIRECT_IPS.slice(0, 4).map((ip, idx) => ({ host: ip, family: 'ipv4', name: `Cloudflare anycast ${idx + 1}` })),
-    ...OFFICIAL_DIRECT_IPV6.slice(0, 2).map((ip, idx) => ({ host: ip, family: 'ipv6', name: `Cloudflare IPv6 ${idx + 1}` }))
-  ];
+  const seeds = builtinEndpointSeeds();
   for (let i = 0; i < seeds.length; i++) {
     const seed = seeds[i];
     const id = `ep-builtin-${i + 1}`;
@@ -289,9 +311,9 @@ async function seedEndpoints(env) {
         `INSERT OR IGNORE INTO endpoints
           (id, name, host, port, family, kind, country, region, provider, protocol, transport, tls_mode,
            source, enabled, health_score, last_latency_ms, last_check_at, last_check_level, failure_count, notes, created_at, updated_at)
-         VALUES (?, ?, ?, 443, ?, 'cloudflare', '', '', 'Cloudflare', 'vless', 'ws', 'tls',
+         VALUES (?, ?, ?, 443, ?, 'cloudflare', '', '', 'Cloudflare', ?, ?, 'tls',
            'builtin', 1, 0, 0, 0, '', 0, '', ?, ?)`,
-        id, seed.name, seed.host, seed.family, now, now
+        id, seed.name, seed.host, seed.family, seed.protocol, seed.transport, now, now
       );
     } catch (_e) {}
   }

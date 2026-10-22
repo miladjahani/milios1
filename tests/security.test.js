@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  PBKDF2_ITERATIONS,
   decryptSecret,
+  describePasswordRecord,
   encryptSecret,
   hashPassword,
   passwordPolicy,
@@ -9,6 +11,17 @@ import {
   timingSafeEqual,
   verifyPassword
 } from '../src/core/security.js';
+
+function base64(bytes) {
+  return Buffer.from(bytes).toString('base64');
+}
+
+async function legacyRecord(password, iterations) {
+  const salt = new Uint8Array(16).fill(9);
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations, hash: 'SHA-256' }, key, 256);
+  return `pbkdf2$sha256$${iterations}$${base64(salt)}$${base64(new Uint8Array(bits))}`;
+}
 
 test('PBKDF2 password hash verifies and rejects wrong password', async () => {
   const hash = await hashPassword('Correct-Horse-42');
@@ -18,6 +31,34 @@ test('PBKDF2 password hash verifies and rejects wrong password', async () => {
   assert.equal(good.scheme, 'pbkdf2');
   const bad = await verifyPassword('Correct-Horse-43', hash);
   assert.equal(bad.ok, false);
+});
+
+test('hashes never exceed the workerd PBKDF2 ceiling', async () => {
+  const hash = await hashPassword('Correct-Horse-42');
+  const info = describePasswordRecord(hash);
+  assert.equal(info.configured, true);
+  assert.equal(info.derivable, true);
+  assert.ok(info.iterations <= PBKDF2_ITERATIONS);
+  assert.ok(info.iterations >= 1000);
+});
+
+test('an over-cap legacy record is reported as unverifiable, not as a wrong password', async () => {
+  const record = await legacyRecord('Correct-Horse-42', 210000);
+  const info = describePasswordRecord(record);
+  assert.equal(info.scheme, 'pbkdf2');
+  assert.equal(info.iterations, 210000);
+  assert.equal(info.derivable, false);
+  const result = await verifyPassword('Correct-Horse-42', record);
+  assert.equal(result.ok, false);
+  assert.equal(result.unverifiable, true);
+  assert.equal(result.scheme, 'pbkdf2-unverifiable');
+});
+
+test('a lower-iteration record still verifies and asks for a rehash', async () => {
+  const record = await legacyRecord('Correct-Horse-42', 10000);
+  const result = await verifyPassword('Correct-Horse-42', record);
+  assert.equal(result.ok, true);
+  assert.equal(result.needsRehash, true);
 });
 
 test('legacy SHA-256 hash still verifies and requests rehash', async () => {

@@ -794,12 +794,16 @@ const ADMIN_JS = `
           '<td>' + esc(p.filtering) + '</td><td><a href="' + esc(p.source) + '" target="_blank" rel="noopener">docs</a></td>' +
           '<td><button class="btn sm" data-act="dns-test" data-id="' + esc(p.id) + '">' + esc(t('test')) + '</button></td></tr>';
       }).join('') + '</tbody></table></div></section>';
-    html += '<section class="card"><h2>ECH</h2><div class="card-sub">ECH is only reported as active when a real HTTPS/SVCB record publishes it. The Worker checks the record; client support is required.</div>' +
+    html += '<section class="card"><h2>ECH Finder</h2><div class="card-sub">Reads the ECHConfigList published in a hostname\'s HTTPS/SVCB record through DoH. When ECH is enabled those configs are embedded in the subscription links; if a host has no record the links fall back to the domain + resolver form.</div>' +
+      '<div class="form-row"><div class="field" style="min-width:260px"><label for="echFindHost">Hostname</label><input id="echFindHost" class="mono" placeholder="cloudflare-ech.com"></div>' +
+      '<div class="field" style="max-width:170px"><label>&nbsp;</label><button class="btn" type="button" data-act="ech-find">Find ECH config</button></div></div>' +
+      '<div id="echFindResult" class="faint" style="margin-top:10px"></div></section>' +
+      '<section class="card"><h2>ECH</h2><div class="card-sub">ECH is only reported as active when a real HTTPS/SVCB record publishes it. The Worker checks the record; client support is required.</div>' +
       '<div class="table-wrap"><table><thead><tr><th>Host</th><th>Clients</th><th>Check</th><th></th></tr></thead><tbody>' +
       (d.echEntries || []).map(function(e){
         var check = d.echChecks && d.echChecks[e.host];
         return '<tr><td class="mono">' + esc(e.host) + '</td><td>' + esc((e.clients||[]).join(', ')) + '</td>' +
-          '<td>' + (check ? badge(check.ok ? 'record found' : 'unavailable', check.ok ? 'ok' : 'warn') + '<div class="faint">' + esc(check.detail || '') + '</div>' : '<span class="faint">not checked</span>') + '</td>' +
+          '<td>' + (check ? badge(check.ok ? 'record found' : 'unavailable', check.ok ? 'ok' : 'warn') + '<div class="faint">' + esc(check.detail || '') + '</div>' + (check.echConfig ? '<div class="mono faint">' + esc(String(check.echConfig).slice(0, 44)) + '…</div>' : '') : '<span class="faint">not checked</span>') + '</td>' +
           '<td><button class="btn sm" data-act="ech-test" data-host="' + esc(e.host) + '">' + esc(t('check')) + '</button></td></tr>';
       }).join('') + '</tbody></table></div></section>' +
       '<div class="alert info"><div><b>' + esc(t('settingsNetwork')) + '</b>' + esc('DNS profile, TLS fingerprint and ECH settings are saved in Settings → Network.') + '</div></div>';
@@ -1214,6 +1218,28 @@ const ADMIN_JS = `
         toast(host + ': ' + (d.result.ok ? 'ECH record found' : (d.result.detail || 'no ECH record')), d.result.ok ? 'ok' : 'err');
         return loadDns();
       }).then(render).catch(function(err){ toast(err.message, 'err'); });
+      return;
+    }
+    if (act === 'ech-find') {
+      var echHost = document.getElementById('echFindHost');
+      var echValue = echHost ? echHost.value.trim() : '';
+      var echOut = document.getElementById('echFindResult');
+      if (!echValue) { toast('Enter a hostname first', 'err'); return; }
+      if (echOut) echOut.innerHTML = '<span class="faint">' + esc(t('loading')) + '</span>';
+      api('/dns/ech-find', { method:'POST', body:{ hostname: echValue, refresh: true } }).then(function(d){
+        var r = d.result || {};
+        if (echOut) {
+          echOut.innerHTML = r.ok
+            ? badge(r.host, 'ok') + ' <span class="faint">' + esc(r.resolver || '') + ' · ' + esc((r.alpn || []).join(',')) + '</span>' +
+              '<div class="mono" style="margin-top:6px;word-break:break-all">' + esc(r.echConfig || '') + '</div>' +
+              '<div class="faint mono">' + esc(String(r.record || '').slice(0, 120)) + '</div>'
+            : badge('no ech record', 'warn') + ' <span class="faint">' + esc(r.detail || '') + '</span>';
+        }
+        toast(r.ok ? 'ECH config found for ' + r.host : (r.detail || 'no ECH record'), r.ok ? 'ok' : 'err');
+      }).catch(function(err){
+        if (echOut) echOut.innerHTML = '<span class="faint">' + esc(err.message) + '</span>';
+        toast(err.message, 'err');
+      });
       return;
     }
     if (act === 'revoke-sessions') {

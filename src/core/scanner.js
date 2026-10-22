@@ -7,6 +7,7 @@
 // ============================================================================
 
 import { connect } from 'cloudflare:sockets';
+import { findEchConfig } from './ech.js';
 import { interpretTlsProbe, mapLimit, parseDohAnswer, scoreHealth } from './health.js';
 import { isValidDomain, isValidIpAddress, normalizeNodeHost } from './utils.js';
 
@@ -168,29 +169,24 @@ export async function scanTargets(targets = [], options = {}) {
   };
 }
 
-/** ECH verification: look for an HTTPS/SVCB record through DoH. */
+/**
+ * ECH verification: look for an HTTPS/SVCB record through DoH and return the
+ * ECHConfigList when the record publishes one.
+ */
 export async function checkEchRecord(hostname) {
   const host = normalizeNodeHost(hostname);
   if (!isValidDomain(host)) {
-    return { ok: false, detail: 'Not a DNS name', record: null };
+    return { ok: false, detail: 'Not a DNS name', record: null, echConfig: '' };
   }
-  try {
-    const res = await fetch(`${DOH_ENDPOINT}?name=${encodeURIComponent(host)}&type=HTTPS`, {
-      headers: { Accept: 'application/dns-json', 'User-Agent': 'miliconfigos-scanner/4.0' }
-    });
-    if (!res.ok) return { ok: false, detail: `DoH HTTP ${res.status}`, record: null };
-    const payload = await res.json();
-    const records = Array.isArray(payload.Answer) ? payload.Answer : [];
-    const https = records.filter(record => record.type === 65);
-    const withEch = https.filter(record => /\bech\s*=/i.test(String(record.data || '')));
-    return {
-      ok: withEch.length > 0,
-      detail: withEch.length
-        ? 'HTTPS/SVCB record publishes an ech parameter'
-        : (https.length ? 'HTTPS record found but no ech parameter' : 'No HTTPS/SVCB record'),
-      record: https[0]?.data || null
-    };
-  } catch (err) {
-    return { ok: false, detail: String(err?.message || err).slice(0, 120), record: null };
-  }
+  const found = await findEchConfig(host);
+  return {
+    ok: found.ok,
+    detail: found.detail,
+    record: found.record || null,
+    echConfig: found.echConfig || '',
+    alpn: found.alpn,
+    ipv4hint: found.ipv4hint,
+    ipv6hint: found.ipv6hint,
+    resolver: found.resolver || ''
+  };
 }

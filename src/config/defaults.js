@@ -423,23 +423,41 @@ export const OFFICIAL_DIRECT_IPS = [
   '172.69.118.198',
   '172.69.119.150',
   '104.16.131.1',
+  '104.16.0.1',
   '104.17.0.1',
+  '104.17.1.1',
   '104.18.0.1',
+  '104.18.1.1',
   '104.19.0.1',
+  '104.19.1.1',
   '104.20.0.1',
+  '104.20.1.1',
   '104.21.0.1',
+  '104.21.1.1',
   '104.22.0.1',
+  '104.22.1.1',
+  '104.23.0.1',
   '104.24.0.1',
   '104.25.0.1',
   '104.26.0.1',
   '104.27.0.1',
+  '104.28.0.1',
+  '104.31.0.1',
   '172.64.0.1',
   '172.65.0.1',
   '172.66.0.1',
   '172.67.0.1',
+  '172.68.0.1',
+  '172.70.0.1',
+  '172.71.0.1',
+  '172.71.1.1',
   '162.159.0.1',
+  '162.159.44.1',
+  '162.159.128.1',
   '188.114.96.1',
-  '188.114.97.1'
+  '188.114.97.1',
+  '188.114.98.1',
+  '188.114.99.1'
 ];
 
 // آی‌پی‌های ثابت IPv6 کلادفلر (فقط وقتی IPv6 فعال باشد)
@@ -449,7 +467,17 @@ export const OFFICIAL_DIRECT_IPV6 = [
   '2606:4700::6812:1',
   '2606:4700::6813:1',
   '2606:4700:10::6810:1',
-  '2803:f800:50::6ca2:c001'
+  '2606:4700:3030::6815:1',
+  '2606:4700:3031::6810:1',
+  '2606:4700:3032::6811:1',
+  '2606:4700:3033::6812:1',
+  '2606:4700:3034::6813:1',
+  '2606:4700:3036::ac43:1',
+  '2606:4700:3037::ac43:1',
+  '2a06:98c1:3120::1',
+  '2a06:98c1:3121::1',
+  '2803:f800:50::6ca2:c001',
+  '2803:f800:51::6ca2:c001'
 ];
 
 export const FALLBACK_PROXY_IPS = [
@@ -463,6 +491,10 @@ export const FALLBACK_PROXY_IPS = [
   { domain: 'ProxyIP.NL.CMLiussss.net', region: 'NL', regionCode: 'NL', port: 443 },
   { domain: 'ProxyIP.FI.CMLiussss.net', region: 'FI', regionCode: 'FI', port: 443 },
   { domain: 'ProxyIP.GB.CMLiussss.net', region: 'GB', regionCode: 'GB', port: 443 },
+  { domain: 'ProxyIP.TR.CMLiussss.net', region: 'TR', regionCode: 'TR', port: 443 },
+  { domain: 'ProxyIP.AE.CMLiussss.net', region: 'AE', regionCode: 'AE', port: 443 },
+  { domain: 'ProxyIP.CA.CMLiussss.net', region: 'CA', regionCode: 'CA', port: 443 },
+  { domain: 'ProxyIP.FR.CMLiussss.net', region: 'FR', regionCode: 'FR', port: 443 },
   { domain: 'ProxyIP.Oracle.cmliussss.net', region: 'Oracle', regionCode: 'Oracle', port: 443 },
   { domain: 'ProxyIP.DigitalOcean.CMLiussss.net', region: 'DigitalOcean', regionCode: 'DigitalOcean', port: 443 },
   { domain: 'ProxyIP.Vultr.CMLiussss.net', region: 'Vultr', regionCode: 'Vultr', port: 443 },
@@ -472,6 +504,14 @@ export const FALLBACK_PROXY_IPS = [
 export const DIRECT_DOMAINS = [
   { name: 'cloudflare.182682.xyz', domain: 'cloudflare.182682.xyz' },
   { name: 'speed.marisalnc.com', domain: 'speed.marisalnc.com' },
+  // دامنه‌های متعلق به خود کلادفلر؛ همیشه روی لبهٔ CF پاسخ می‌دهند و به تغییر
+  // دامنه‌های شخص ثالث وابسته نیستند.
+  { name: 'Cloudflare (cloudflare.com)', domain: 'cloudflare.com' },
+  { name: 'Cloudflare DNS', domain: 'cloudflare-dns.com' },
+  { name: 'Cloudflare 1.1.1.1', domain: 'one.one.one.one' },
+  { name: 'Cloudflare Workers', domain: 'workers.cloudflare.com' },
+  { name: 'Cloudflare ECH', domain: 'cloudflare-ech.com' },
+  { name: 'Cloudflare Crypto', domain: 'crypto.cloudflare.com' },
   { domain: 'freeyx.cloudflare88.eu.org' },
   { domain: 'bestcf.top' },
   { domain: 'cdn.2020111.xyz' },

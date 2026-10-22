@@ -12,8 +12,13 @@ const textEncoder = new TextEncoder();
 // Cloudflare Workers (workerd) rejects any single PBKDF2 call above 100000
 // iterations with NotSupportedError ("iteration counts above 100000 are not
 // supported"), so the work factor is capped at the runtime maximum.
-const PBKDF2_ITERATIONS = 100000;
-const LEGACY_ITERATIONS = 50000;
+export const PBKDF2_ITERATIONS = 100000;
+const MIN_ACCEPTED_ITERATIONS = 1000;
+
+// Runtimes have shipped different PBKDF2 ceilings over time. Hashing walks this
+// ladder down from the strongest accepted work factor so a setup or password
+// change can never fail with the raw runtime NotSupportedError.
+const PBKDF2_LADDER = [PBKDF2_ITERATIONS, 60000, 30000, 10000, MIN_ACCEPTED_ITERATIONS];
 
 export const SESSION_COOKIE = 'mili_session';
 export const LEGACY_SESSION_COOKIE = 'mili_auth';
@@ -94,6 +99,12 @@ export function randomToken(byteLength = 32) {
 
 // ---- password hashing -------------------------------------------------------
 
+function isIterationLimitError(err) {
+  if (!err) return false;
+  if (err.name === 'NotSupportedError' || err.code === 11) return true;
+  return /pbkdf2|iteration/i.test(String(err.message || err));
+}
+
 async function pbkdf2(password, saltBytes, iterations) {
   const keyMaterial = await crypto.subtle.importKey(
     'raw',
@@ -110,11 +121,58 @@ async function pbkdf2(password, saltBytes, iterations) {
   return new Uint8Array(bits);
 }
 
+/**
+ * Derive a password hash with the strongest work factor the runtime accepts,
+ * stepping down only when the platform rejects the iteration count.
+ * @returns {{hash: Uint8Array, iterations: number}}
+ */
+export async function deriveAdaptive(password, saltBytes) {
+  let lastError = null;
+  for (const iterations of PBKDF2_LADDER) {
+    try {
+      const hash = await pbkdf2(password, saltBytes, iterations);
+      return { hash, iterations };
+    } catch (err) {
+      if (!isIterationLimitError(err)) throw err;
+      lastError = err;
+    }
+  }
+  throw new Error(`PBKDF2 is not available in this runtime: ${String(lastError?.message || lastError)}`);
+}
+
 export async function hashPassword(password) {
   const salt = new Uint8Array(16);
   crypto.getRandomValues(salt);
-  const hash = await pbkdf2(password, salt, PBKDF2_ITERATIONS);
-  return `pbkdf2$sha256$${PBKDF2_ITERATIONS}$${bytesToBase64(salt)}$${bytesToBase64(hash)}`;
+  const { hash, iterations } = await deriveAdaptive(password, salt);
+  return `pbkdf2$sha256$${iterations}$${bytesToBase64(salt)}$${bytesToBase64(hash)}`;
+}
+
+/**
+ * Describe a stored password record without deriving anything, so callers can
+ * tell "wrong password" apart from "this record can never be derived here".
+ */
+export function describePasswordRecord(stored) {
+  const value = String(stored || '');
+  if (!value) return { configured: false, scheme: 'none', iterations: 0, derivable: false };
+  if (value.startsWith('pbkdf2$')) {
+    const parts = value.split('$');
+    const iterations = parseInt(parts[2], 10);
+    if (parts.length !== 5 || parts[1] !== 'sha256' || !Number.isFinite(iterations)) {
+      return { configured: true, scheme: 'pbkdf2-invalid', iterations: 0, derivable: false };
+    }
+    return {
+      configured: true,
+      scheme: 'pbkdf2',
+      iterations,
+      // Records written by runtimes without the 100k ceiling (older builds used
+      // 210 000) can never be derived on workerd again.
+      derivable: iterations >= MIN_ACCEPTED_ITERATIONS && iterations <= PBKDF2_ITERATIONS
+    };
+  }
+  if (/^[0-9a-f]{64}$/i.test(value)) {
+    return { configured: true, scheme: 'sha256-legacy', iterations: 0, derivable: true };
+  }
+  return { configured: true, scheme: 'unknown', iterations: 0, derivable: false };
 }
 
 /**
@@ -130,8 +188,19 @@ export async function verifyPassword(password, stored) {
     const parts = value.split('$');
     if (parts.length !== 5 || parts[1] !== 'sha256') return { ok: false, needsRehash: false, scheme: 'pbkdf2-invalid' };
     const iterations = parseInt(parts[2], 10);
-    if (!Number.isFinite(iterations) || iterations < LEGACY_ITERATIONS) {
+    if (!Number.isFinite(iterations) || iterations < MIN_ACCEPTED_ITERATIONS) {
       return { ok: false, needsRehash: false, scheme: 'pbkdf2-invalid' };
+    }
+    if (iterations > PBKDF2_ITERATIONS) {
+      // workerd refuses to derive this record at all. Report it distinctly so the
+      // API can explain the reset path instead of claiming a wrong password.
+      return {
+        ok: false,
+        needsRehash: false,
+        scheme: 'pbkdf2-unverifiable',
+        unverifiable: true,
+        iterations
+      };
     }
     let salt;
     let expected;
@@ -144,9 +213,12 @@ export async function verifyPassword(password, stored) {
     let actual;
     try {
       actual = bytesToBase64(await pbkdf2(password, salt, iterations));
-    } catch (_e) {
-      // A record stored with more than 100k iterations cannot be derived on
-      // workerd at all; report it as invalid instead of bubbling a 500.
+    } catch (err) {
+      // The runtime may cap iterations lower than this record needs; surface it
+      // as unverifiable instead of bubbling a 500 or claiming a wrong password.
+      if (isIterationLimitError(err)) {
+        return { ok: false, needsRehash: false, scheme: 'pbkdf2-unverifiable', unverifiable: true, iterations };
+      }
       return { ok: false, needsRehash: false, scheme: 'pbkdf2-invalid' };
     }
     const ok = timingSafeEqual(actual, expected);

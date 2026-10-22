@@ -50,6 +50,7 @@ import {
   protocolEnabled
 } from '../core/engine.js';
 import { checkEchRecord, checkTarget, scanTargets } from '../core/scanner.js';
+import { findEchConfig } from '../core/ech.js';
 import { runAutomationJob } from '../core/automation.js';
 import { healthLabel } from '../core/health.js';
 import { isValidDomain, isValidIpAddress, isValidUuid, normalizeNodeHost } from '../core/utils.js';
@@ -61,10 +62,12 @@ import {
   ensureD1Schema,
   getOrCreateAdminPath,
   getStorageDiagnostics,
+  getAdminPasswordDiagnostics,
   hasAdminPassword,
   initializeAdminPassword,
   listUsers,
   loadGlobalConfig,
+  matchesEnvAdminPassword,
   resetGlobalConfig,
   resetUserStats,
   saveGlobalConfig,
@@ -348,8 +351,12 @@ async function handleAuth(request, env, seg, method) {
     const maxFailures = Math.max(3, Number(cfg.loginRateLimitMax) || 8);
     const failures = await recentFailedLogins(env, ip);
     if (failures >= maxFailures) {
-      await addAuditLog(env, 'ورود مسدود شد', `Rate limit for ${ip}`, ip);
-      return fail(429, 'RATE_LIMITED', 'Too many failed login attempts. Try again in 15 minutes.');
+      // The environment password is a deployment secret, not a guessable
+      // credential: keep the documented recovery path open through the limiter.
+      if (!matchesEnvAdminPassword(env, String(body.password || ''))) {
+        await addAuditLog(env, 'ورود مسدود شد', `Rate limit for ${ip}`, ip);
+        return fail(429, 'RATE_LIMITED', 'Too many failed login attempts. Try again in 15 minutes.');
+      }
     }
     if (!(await hasAdminPassword(env))) {
       return fail(409, 'SETUP_REQUIRED', 'No administrator password is configured yet.');
@@ -358,6 +365,15 @@ async function handleAuth(request, env, seg, method) {
     const ok = await verifyAdminPassword(env, password);
     await recordLoginAttempt(env, ip, ok);
     if (!ok) {
+      const diagnostics = await getAdminPasswordDiagnostics(env);
+      if (diagnostics.derivable === false) {
+        return fail(
+          409,
+          'PASSWORD_UNVERIFIABLE',
+          `The stored administrator password was hashed with ${diagnostics.iterations || 'an unsupported number of'} PBKDF2 iterations, which this runtime cannot derive. ` +
+            'Set the MILI_ADMIN_PASSWORD secret on the Worker (Settings → Variables and Secrets), deploy, and sign in with it; panel password changes take over from there.'
+        );
+      }
       return fail(401, 'INVALID_CREDENTIALS', 'Incorrect password.');
     }
     const session = await createAdminSession(env, { ttlHours: cfg.sessionHours || 12, ip });
@@ -826,6 +842,28 @@ async function handleDns(request, env, seg, method) {
       checks,
       echChecks
     });
+  }
+
+  // ECH Finder: returns the actual ECHConfigList published in the HTTPS/SVCB record.
+  if (seg[1] === 'ech-find' && (method === 'GET' || method === 'POST')) {
+    const body = method === 'POST' ? await readBody(request) : {};
+    const url = new URL(request.url);
+    const hostname = String(
+      body.hostname || body.domain || url.searchParams.get('hostname') || url.searchParams.get('domain') || ''
+    ).trim();
+    if (!hostname) return fail(400, 'HOST_REQUIRED', 'Hostname is required.');
+    const refresh = body.refresh === true || url.searchParams.get('refresh') === '1';
+    const result = await findEchConfig(hostname, { refresh });
+    if (result.ok && result.echConfig) {
+      await setMeta(env, `ech_check_${result.host}`, {
+        ok: true,
+        detail: result.detail,
+        record: result.record,
+        echConfig: result.echConfig,
+        checkedAt: Date.now()
+      });
+    }
+    return json({ ok: true, hostname: result.host, result });
   }
 
   if (seg[1] === 'ech-test' && method === 'POST') {
