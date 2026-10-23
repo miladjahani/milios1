@@ -329,7 +329,13 @@ export async function decryptSecret(stored, env = {}) {
 export function readCookie(request, name) {
   const raw = request.headers.get('Cookie') || '';
   const match = raw.match(new RegExp('(?:^|;\\s*)' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '=([^;]*)'));
-  return match ? decodeURIComponent(match[1]) : '';
+  if (!match) return '';
+  try {
+    return decodeURIComponent(match[1]);
+  } catch (_e) {
+    // A corrupt cookie is an authentication failure, never a crash.
+    return '';
+  }
 }
 
 export function sessionCookie(request, token, maxAgeSeconds) {

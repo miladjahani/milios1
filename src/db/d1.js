@@ -31,8 +31,15 @@ const memoryStore = {
   lastSyncAt: 0,
   adminPasswordHash: '',
   envPasswordDigest: '',
-  adminPath: ''
+  adminPath: '',
+  schemaDb: null,
+  schemaLastAttemptAt: 0,
+  schemaError: ''
 };
+
+// Schema DDL is expensive enough to matter during an outage: without a
+// cooldown a quota-limited database was queried dozens of times per request.
+const D1_SCHEMA_RETRY_MS = 10000;
 
 export function detectD1Binding(env) {
   if (!env || typeof env !== 'object') return null;
@@ -205,9 +212,19 @@ export async function ensureD1Schema(env = {}, force = false) {
     return { d1Enabled: false, bindingName: null, migrated: false };
   }
   const { db, bindingName } = detected;
+  if (memoryStore.schemaDb !== db) {
+    memoryStore.schemaDb = db;
+    memoryStore.d1SchemaReady = false;
+    memoryStore.schemaError = '';
+    memoryStore.schemaLastAttemptAt = 0;
+  }
   if (memoryStore.d1SchemaReady && !force) {
     return { d1Enabled: true, bindingName, migrated: true };
   }
+  if (!force && memoryStore.schemaError && Date.now() - memoryStore.schemaLastAttemptAt < D1_SCHEMA_RETRY_MS) {
+    return { d1Enabled: true, bindingName, migrated: false, error: memoryStore.schemaError };
+  }
+  memoryStore.schemaLastAttemptAt = Date.now();
 
   const ddlStatements = [
     `CREATE TABLE IF NOT EXISTS system_config (
@@ -267,6 +284,7 @@ export async function ensureD1Schema(env = {}, force = false) {
       await db.prepare(sql).run();
     }
     memoryStore.d1SchemaReady = true;
+    memoryStore.schemaError = '';
 
     // No user is created automatically: all five user slots belong to the
     // administrator. Creating a hidden starter account here would silently
@@ -275,12 +293,15 @@ export async function ensureD1Schema(env = {}, force = false) {
 
     return { d1Enabled: true, bindingName, migrated: true };
   } catch (err) {
+    // Keep the binding visible: "no database" and "database rejected the
+    // schema pass" are different failures and the panel must say which.
+    memoryStore.schemaError = String(err?.message || err);
     ensureMemorySeeded(env);
     return {
-      d1Enabled: false,
+      d1Enabled: true,
       bindingName,
       migrated: false,
-      error: err?.message || String(err)
+      error: memoryStore.schemaError
     };
   }
 }

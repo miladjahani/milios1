@@ -30,5 +30,8 @@ jobs:
       - name: Verify bundle is syntactically valid
         run: node --check build/worker.readable.js
 
+      - name: Verify obfuscated bundle boots and serves (Workers-safe)
+        run: npm run verify:build
+
       - name: Pages deployer preflight
         run: node scripts/deploy-pages.js --check

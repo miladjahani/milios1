@@ -65,7 +65,7 @@ import {
 } from '../core/sources.js';
 import { runAutomationJob } from '../core/automation.js';
 import { healthLabel } from '../core/health.js';
-import { isValidDomain, isValidIpAddress, isValidUuid, normalizeNodeHost } from '../core/utils.js';
+import { isDatabaseQuotaError, isValidDomain, isValidIpAddress, isValidUuid, normalizeNodeHost } from '../core/utils.js';
 import {
   addAuditLog,
   changeAdminPassword,
@@ -1444,7 +1444,11 @@ export async function handleV1Api(request, env) {
         apiVersion: API_VERSION,
         time: new Date().toISOString(),
         storage: diag.d1Enabled ? 'd1' : (isMemoryMode() ? 'memory' : 'kv'),
-        initialized: diag.hasPassword
+        initialized: diag.hasPassword,
+        // Public, non-secret diagnosis: the panel points users here when a
+        // request fails, so storage failures must be visible without a session.
+        storageState: diag.d1Error ? (isDatabaseQuotaError(diag.d1Error) ? 'quota' : 'error') : (diag.d1Migrated ? 'ready' : 'unknown'),
+        schemaMigrated: Boolean(diag.d1Migrated)
       });
     }
 
@@ -1499,6 +1503,15 @@ export async function handleV1Api(request, env) {
 
     return fail(404, 'NOT_FOUND', 'Unknown API route.');
   } catch (err) {
+    if (isDatabaseQuotaError(err)) {
+      console.error(JSON.stringify({
+        level: 'error',
+        scope: 'api/v1',
+        path: url.pathname,
+        message: String(err?.message || err)
+      }));
+      return fail(503, 'DB_QUOTA', 'The D1 database quota is exhausted and resets at 00:00 UTC. Changes are not saved until then.');
+    }
     const status = Number(err?.status) || 500;
     if (status >= 500) {
       console.error(JSON.stringify({

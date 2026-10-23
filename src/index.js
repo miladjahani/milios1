@@ -11,6 +11,7 @@ import {
   VERSION
 } from './config/defaults.js';
 import { isPrivateHost } from './config/schema.js';
+import { isDatabaseQuotaError, safeDecodeURI } from './core/utils.js';
 import {
   ensureD1Schema,
   getOrCreateAdminPath,
@@ -91,6 +92,64 @@ function textResponse(text, status = 200, extraHeaders = {}) {
       ...securityHeaders(),
       ...extraHeaders
     }
+  });
+}
+
+function jsonErrorResponse(status, code, message, extraHeaders = {}) {
+  return new Response(JSON.stringify({ ok: false, error: { code, message } }), {
+    status,
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+      ...securityHeaders(),
+      ...extraHeaders
+    }
+  });
+}
+
+// A Worker that never answers reaches the client as Cloudflare's opaque
+// "1101" page. Every accepted request therefore runs under a deadline: a slow
+// D1 call or a stalled upstream becomes a readable 503 instead.
+const DEFAULT_REQUEST_DEADLINE_MS = 50000;
+const TIMED_OUT = Symbol('request-timed-out');
+
+// Long-running admin jobs (source sync, scanning) are given more room: they do
+// real network work and their result must reach the panel, not a timeout.
+const LONG_RUNNING_API = /^\/api\/v1\/(sources|scanner|automation|cloudflare)(\/|$)/;
+const LONG_RUNNING_DEADLINE_MS = 120000;
+
+function requestDeadlineMs(env = {}, pathname = '') {
+  const configured = Number(env && env.MILI_REQUEST_DEADLINE_MS);
+  const base = Number.isFinite(configured) && configured > 0
+    ? Math.min(300000, Math.max(1000, Math.floor(configured)))
+    : DEFAULT_REQUEST_DEADLINE_MS;
+  if (LONG_RUNNING_API.test(String(pathname || ''))) return Math.max(base, LONG_RUNNING_DEADLINE_MS);
+  return base;
+}
+
+function withDeadline(work, ms) {
+  if (!ms || ms <= 0) return work;
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resolve(TIMED_OUT);
+    }, ms);
+    Promise.resolve(work).then(
+      value => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      },
+      error => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
   });
 }
 
@@ -191,9 +250,28 @@ function subscriptionBlockedResponse(user) {
 
 export default {
   async fetch(request, env = {}, ctx = {}) {
-    const url = new URL(request.url);
+    let url;
+    try {
+      url = new URL(request.url);
+    } catch (_e) {
+      return jsonErrorResponse(400, 'BAD_REQUEST', 'Malformed request URL.');
+    }
     const started = Date.now();
     try {
+      const result = await withDeadline((async () => {
+      // Retire service workers left behind by an older panel build before any
+      // storage work: a stale cached worker is indistinguishable from a hung
+      // Worker and was a common cause of a dashboard stuck on "Loading".
+      if ((request.method === 'GET' || request.method === 'HEAD') && url.pathname === '/sw.js') {
+        return textResponse(
+          "self.addEventListener('install',function(e){self.skipWaiting();});\n" +
+          "self.addEventListener('activate',function(e){e.waitUntil(caches.keys().then(function(keys){\n" +
+          "return Promise.all(keys.map(function(key){return caches.delete(key);}));}).then(function(){\n" +
+          "return self.registration.unregister();}).then(function(){return self.clients.claim();}));});\n",
+          200,
+          { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-store', 'Service-Worker-Allowed': '/' }
+        );
+      }
       await ensureD1Schema(env);
       await ensureV4Schema(env);
       // MILI_ADMIN_PASSWORD (when set) owns the administrator password, and is
@@ -230,7 +308,7 @@ export default {
         const apiSubPath = pathParts.slice(apiIdx + 1).join('/');
 
         if (apiSubPath.startsWith('status/')) {
-          const token = decodeURIComponent(apiSubPath.slice('status/'.length));
+          const token = safeDecodeURI(apiSubPath.slice('status/'.length));
           return await handlePublicUserStatusApi(request, env, token);
         }
 
@@ -301,8 +379,8 @@ export default {
           (pathParts.length >= 2 && pathParts[pathParts.length - 1] === 'sub');
         if (isSubPath) {
           const token = pathParts[0] === 's' || pathParts[0] === 'sub'
-            ? decodeURIComponent(pathParts.slice(1).join('/'))
-            : decodeURIComponent(pathParts.slice(0, -1).join('/'));
+            ? safeDecodeURI(pathParts.slice(1).join('/'))
+            : safeDecodeURI(pathParts.slice(0, -1).join('/'));
 
           const isAdminToken = isAdminAuthorizedPath(token, adminUuid, globalCfg.d);
           let targetUser = null;
@@ -352,8 +430,8 @@ export default {
 
         if (wantsStatus) {
           const token = pathParts[0] === 'status' && pathParts[1]
-            ? decodeURIComponent(pathParts[1])
-            : (pathParts.length === 2 && pathParts[1] === 'status' ? decodeURIComponent(pathParts[0]) : '');
+            ? safeDecodeURI(pathParts[1])
+            : (pathParts.length === 2 && pathParts[1] === 'status' ? safeDecodeURI(pathParts[0]) : '');
           let userObj = null;
           if (token) {
             const resolved = await resolveSubscriptionContext(env, token);
@@ -429,7 +507,42 @@ export default {
       }
 
       return textResponse(JSON.stringify({ error: 'Not Found' }), 404);
+      })(), requestDeadlineMs(env, url.pathname));
+
+      if (result === TIMED_OUT) {
+        log('error', 'Request deadline exceeded', {
+          path: url.pathname,
+          method: request.method,
+          ms: Date.now() - started
+        });
+        return jsonErrorResponse(503, 'REQUEST_TIMEOUT',
+          'The request took too long and was stopped. Retry; if it keeps happening check the Worker logs.',
+          { 'Retry-After': '2' });
+      }
+      // A handler that forgets to return a Response makes the runtime abort the
+      // request with "The script will never generate a response" (error 1101).
+      if (!(result instanceof Response)) {
+        log('error', 'Handler returned no Response', {
+          path: url.pathname,
+          method: request.method,
+          ms: Date.now() - started
+        });
+        return jsonErrorResponse(500, 'INTERNAL_ERROR',
+          'The request handler produced no response. Check the Worker logs for details.');
+      }
+      return result;
     } catch (err) {
+      if (isDatabaseQuotaError(err)) {
+        log('error', 'Database quota exhausted', {
+          path: url.pathname,
+          method: request.method,
+          message: String(err?.message || err),
+          ms: Date.now() - started
+        });
+        return jsonErrorResponse(503, 'DB_QUOTA',
+          'سهمیه دیتابیس D1 تمام شده است و در ساعت ۰۰:۰۰ UTC بازنشانی می‌شود. تا آن زمان تغییرات ذخیره نمی‌شوند.',
+          { 'Retry-After': '3600' });
+      }
       log('error', 'Unhandled request error', {
         path: url.pathname,
         method: request.method,

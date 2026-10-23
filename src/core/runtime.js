@@ -213,8 +213,14 @@ function createDownloadCoalescer(ws, onBytesSent = null) {
     microScheduled = false;
     if (!offset) return;
     if (ws.readyState === 1) {
-      ws.send(buf.subarray(0, offset).slice());
-      if (onBytesSent) onBytesSent(offset);
+      try {
+        ws.send(buf.subarray(0, offset).slice());
+        if (onBytesSent) onBytesSent(offset);
+      } catch (_e) {
+        // A closed socket must not turn into an uncaught runtime exception
+        // (Cloudflare reports those as Worker error 1101).
+        closeSocketSafe(ws);
+      }
     }
     buf = new Uint8Array(maxPacket);
     offset = 0;
@@ -253,8 +259,13 @@ function createDownloadCoalescer(ws, onBytesSent = null) {
         if (!offset && len - pos >= maxPacket) {
           const sz = Math.min(maxPacket, len - pos);
           if (ws.readyState === 1) {
-            ws.send(pos || sz !== len ? data.subarray(pos, pos + sz) : data);
-            if (onBytesSent) onBytesSent(sz);
+            try {
+              ws.send(pos || sz !== len ? data.subarray(pos, pos + sz) : data);
+              if (onBytesSent) onBytesSent(sz);
+            } catch (_e) {
+              closeSocketSafe(ws);
+              return;
+            }
           }
           pos += sz;
           continue;
@@ -629,28 +640,70 @@ export async function parseTrojanHeader(buffer, resolveTrojanUserFn) {
   };
 }
 
-function makeWebSocketReadableStream(ws, earlyDataHeader) {
+// WebSocket event listeners run outside the request promise chain, so an
+// exception thrown there is an uncaught Worker exception. Every controller and
+// socket interaction in this stream is therefore defended, and a late message
+// arriving after close is dropped instead of enqueueing into a closed stream.
+export function makeWebSocketReadableStream(ws, earlyDataHeader) {
   let cancelled = false;
+  let finished = false;
+
   return new ReadableStream({
     start(controller) {
+      const shutdown = () => {
+        if (cancelled || finished) return;
+        cancelled = true;
+        closeSocketSafe(ws);
+      };
+      const enqueue = chunk => {
+        if (cancelled || finished) return;
+        try {
+          controller.enqueue(chunk);
+        } catch (_e) {
+          shutdown();
+        }
+      };
+
       ws.addEventListener('message', event => {
-        if (!cancelled) controller.enqueue(toUint8Array(event.data));
+        if (cancelled || finished) return;
+        let data;
+        try {
+          data = toUint8Array(event && event.data);
+        } catch (_e) {
+          return;
+        }
+        if (!data.byteLength) return;
+        enqueue(data);
       });
       ws.addEventListener('close', () => {
-        if (!cancelled) {
-          closeSocketSafe(ws);
-          try { controller.close(); } catch (_e) {}
-        }
+        if (finished) return;
+        finished = true;
+        closeSocketSafe(ws);
+        try { controller.close(); } catch (_e) {}
       });
       ws.addEventListener('error', err => {
+        if (finished) return;
+        finished = true;
+        closeSocketSafe(ws);
         try { controller.error(err); } catch (_e) {}
       });
-      const { earlyData, error } = parseBase64EarlyData(earlyDataHeader);
-      if (error) controller.error(error);
-      else if (earlyData) controller.enqueue(toUint8Array(earlyData));
+
+      let early = { earlyData: null, error: null };
+      try {
+        early = parseBase64EarlyData(earlyDataHeader);
+      } catch (_e) {
+        early = { earlyData: null, error: null };
+      }
+      if (early.error) {
+        finished = true;
+        try { controller.error(early.error); } catch (_e) {}
+      } else if (early.earlyData) {
+        enqueue(toUint8Array(early.earlyData));
+      }
     },
     cancel() {
       cancelled = true;
+      finished = true;
       closeSocketSafe(ws);
     }
   });
@@ -1190,6 +1243,12 @@ export function validateXhttpPadding(request, padHeader, padKey) {
 
 async function readXhttpHeader(readableStream, resolveUserFn) {
   const reader = readableStream.getReader({ mode: 'byob' });
+  // Every early exit has to hand the request body back to the runtime, or the
+  // stream stays locked for the rest of the request.
+  const bail = () => {
+    try { reader.releaseLock(); } catch (_e) {}
+    return null;
+  };
   try {
     let res = await reader.readAtLeast(18, new Uint8Array(new ArrayBuffer(128 * 1024)));
     let totalRead = res.value.length;
@@ -1197,31 +1256,28 @@ async function readXhttpHeader(readableStream, resolveUserFn) {
     const version = buf[0];
     const incomingUuid = bytesToUuid(buf, 1);
     const matchedUser = incomingUuid ? resolveUserFn(incomingUuid) : null;
-    if (!matchedUser) {
-      try { reader.releaseLock(); } catch (_e) {}
-      return null;
-    }
+    if (!matchedUser) return bail();
     const optLen = buf[17];
     const addrOffset = 18 + optLen + 1 + 2 + 1;
     if (addrOffset + 1 > totalRead) {
-      if (res.done) return null;
+      if (res.done) return bail();
       const needed = addrOffset + 1 - totalRead;
       res = await reader.readAtLeast(needed, new Uint8Array(new ArrayBuffer(128 * 1024)));
       totalRead += res.value.length;
       buf = concatUint8Arrays(buf, res.value);
     }
     const cmd = buf[18 + optLen];
-    if (cmd !== 1) return null;
+    if (cmd !== 1) return bail();
     const port = (buf[addrOffset - 3] << 8) + buf[addrOffset - 2];
     const atyp = buf[addrOffset - 1];
     let headerLen = -1;
     if (atyp === ADDR_TYPE_IPV4) headerLen = addrOffset + 4;
     else if (atyp === ADDR_TYPE_IPV6) headerLen = addrOffset + 16;
     else if (atyp === ADDR_TYPE_DOMAIN) headerLen = addrOffset + 1 + buf[addrOffset];
-    if (headerLen < 0) return null;
+    if (headerLen < 0) return bail();
     const rem = headerLen - totalRead;
     if (rem > 0) {
-      if (res.done) return null;
+      if (res.done) return bail();
       res = await reader.readAtLeast(rem, new Uint8Array(new ArrayBuffer(128 * 1024)));
       totalRead += res.value.length;
       buf = concatUint8Arrays(buf, res.value);
@@ -1237,7 +1293,7 @@ async function readXhttpHeader(readableStream, resolveUserFn) {
         .reduce((acc, v, i, arr) => (i % 2 ? acc.concat(((arr[i - 1] << 8) + v).toString(16)) : acc), [])
         .join(':');
     }
-    if (!hostname) return null;
+    if (!hostname) return bail();
     return {
       hostname,
       port,
@@ -1271,11 +1327,15 @@ export async function handleXhttpPostRequest(request, env, ctx, globalCfg, allUs
   if (!parsedHeader) {
     return new Response('Bad Request', { status: 400 });
   }
+  const releaseHeader = () => {
+    try { parsedHeader.reader.releaseLock(); } catch (_e) {}
+  };
 
   const matchedUser = parsedHeader.matchedUser;
   const userUuid = matchedUser.uuid || adminUuid;
   const { header: xPadHeader, key: xPadKey } = getXhttpPaddingMeta(userUuid);
   if (!validateXhttpPadding(request, xPadHeader, xPadKey)) {
+    releaseHeader();
     return new Response('Bad Request', { status: 400 });
   }
 
@@ -1284,10 +1344,14 @@ export async function handleXhttpPostRequest(request, env, ctx, globalCfg, allUs
     remoteSocket = await connectRacedSocket(parsedHeader.hostname, parsedHeader.port, request.fetcher, CONNECT_RACE_COUNT);
   } catch (_e) {
     const fb = await selectFallbackProxyAddress(globalCfg.wk || 'CF', true);
-    if (!fb) return new Response('Gateway Timeout', { status: 504 });
+    if (!fb) {
+      releaseHeader();
+      return new Response('Gateway Timeout', { status: 504 });
+    }
     try {
       remoteSocket = await connectRacedSocket(fb.domain, fb.port || parsedHeader.port, request.fetcher, 1);
     } catch (_e2) {
+      releaseHeader();
       return new Response('Bad Gateway', { status: 502 });
     }
   }
@@ -1332,6 +1396,9 @@ export async function handleXhttpPostRequest(request, env, ctx, globalCfg, allUs
     } catch (_e) {} finally {
       try { reader.releaseLock(); } catch (_e) {}
       try { writer.releaseLock(); } catch (_e) {}
+      // The response direction is over (or the client went away). Closing the
+      // upstream socket also settles the upload half, so no stream leaks.
+      try { remoteSocket.close(); } catch (_e) {}
     }
   })();
 

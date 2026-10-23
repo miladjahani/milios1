@@ -188,7 +188,7 @@ In the panel:
 
 ## 8. CI/CD
 
-- `.github/workflows/ci.yml` — tests, schema validation, build and bundle syntax check on every push.
+- `.github/workflows/ci.yml` — tests, schema validation, build plus `npm run verify:build` (Workers-compatibility scan and a real boot of the obfuscated bundle) on every push.
 - `.github/workflows/deploy.yml` — manual or tag-triggered deploy. Requires repository secrets
   `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`; it skips with a notice when they are absent.
   Replace the placeholder `database_id` first.
@@ -228,10 +228,44 @@ Keep the D1 export from step 9 for data rollback.
 | Cron jobs never run | Pages has no cron; on Workers confirm `[triggers]` is deployed and check `automation_runs`. |
 | `storage: base64-only` | `MILI_ENCRYPTION_KEY` is not set. |
 | Styles/theme look wrong | Check `/admin` is being served (not a cached copy); assets are inline, so a stale CDN cache is the usual cause — hard reload. |
+| Dashboard spinner never finishes | A service worker from an older panel build is still caching the page. The panel unregisters it on load and `/sw.js` now serves a self-unregistering worker; reload once (or clear site data). |
+
+### Cloudflare error 1101 ("Worker threw a JavaScript exception")
+
+1101 is not a CPU or memory error (that is 1102) and it is not caused by
+minification itself. It means an exception escaped the Worker or the handler
+never produced a response. The build is guarded against the common causes:
+
+- **No dynamic code.** `npm run verify:build` fails the build if the bundle
+  contains `eval()`, `new Function()`, `require()`, `process.env`, `Buffer`, or
+  Node-only globals. Obfuscation uses the `browser-no-eval` target; the
+  `stringArrayRotate`/`Shuffle` startup loop is disabled so global scope stays
+  cheap (Cloudflare allows 1s of startup CPU).
+- **No hung request.** Every request runs under a deadline and answers with a
+  readable `503 {"error":{"code":"REQUEST_TIMEOUT"}}` instead of a Cloudflare
+  error page. Tune it with the `MILI_REQUEST_DEADLINE_MS` variable (default
+  50000, clamped to 1000–300000). Source sync, scanner, automation and
+  Cloudflare API routes get at least 120000ms because they do real network work.
+- **No missing responses.** If a route forgets to return a `Response`, the
+  Worker answers `500 INTERNAL_ERROR` and logs it instead of letting the
+  runtime abort the request with 1101.
+- **No exception from WebSocket callbacks.** Late frames after a socket closes
+  are dropped; xHTTP stream failures close the upstream socket and release
+  locks.
+- **Diagnosable database failures.** An exhausted D1 quota returns
+  `503 DB_QUOTA` with `Retry-After`; a failed schema pass is retried every 10s
+  instead of silently switching the isolate to memory.
+
+When 1101 still appears, open *Workers → your Worker → Logs* and filter
+`level:error`. The logged JSON includes `scope`, `path`, `message` and `ms`, so
+the failing statement is identifiable. The console log of the bundled Worker is
+preserved (`disableConsoleOutput: false`).
 
 ## 12. Deployment checklist
 
 - [ ] `npm test` passes locally.
+- [ ] `npm run build && npm run verify:build` passes (bundle parses, starts,
+      serves the gateway and survives setup/login).
 - [ ] `npm run check:schema` passes.
 - [ ] `database_id` replaced in the deployed config.
 - [ ] `MILI_ENCRYPTION_KEY` set as a secret.

@@ -40,6 +40,16 @@ function loadJsObfuscator() {
   }
 }
 
+function randomXorKey() {
+  try {
+    const buf = new Uint16Array(1);
+    globalThis.crypto.getRandomValues(buf);
+    return (buf[0] & 0x7fff) || 0x5a;
+  } catch (_e) {
+    return (Math.floor(Math.random() * 0x7fff) || 0x5a);
+  }
+}
+
 function xorEncodeToBase64(str, key) {
   const bytes = Buffer.from(str, 'utf8');
   const out = Buffer.allocUnsafe(bytes.length);
@@ -156,6 +166,16 @@ export async function obfuscateWorkerBundle(rawEsmCode) {
 
   const JavaScriptObfuscator = loadJsObfuscator();
   if (JavaScriptObfuscator) {
+    // Workers-safe profile. What is deliberately OFF matters as much as what
+    // is on:
+    //  - new Function()/eval() are forbidden in the Workers runtime, so the
+    //    target is browser-no-eval (never "node": this is not Node).
+    //  - stringArrayRotate/Shuffle emit a checksum loop in the module's global
+    //    scope. Cloudflare counts that as startup CPU (1s budget) and a failed
+    //    cold start surfaces as Worker error 1101, so the table is static.
+    //  - controlFlowFlattening/deadCodeInjection/selfDefending either blow up
+    //    CPU or are broken by any later minification pass.
+    //  - numbersToExpressions only adds arithmetic noise and CPU.
     const obfResult = JavaScriptObfuscator.obfuscate(bodyCode, {
       compact: true,
       controlFlowFlattening: false,
@@ -163,15 +183,16 @@ export async function obfuscateWorkerBundle(rawEsmCode) {
       stringArray: true,
       stringArrayEncoding: ['base64'],
       stringArrayThreshold: 0.75,
-      stringArrayRotate: true,
-      stringArrayShuffle: true,
-      stringArrayWrappersCount: 2,
+      stringArrayRotate: false,
+      stringArrayShuffle: false,
+      stringArrayWrappersCount: 1,
+      stringArrayWrappersType: 'variable',
       stringArrayWrappersChainedCalls: false,
       renameGlobals: false,
       identifierNamesGenerator: 'hexadecimal',
       renameProperties: false,
-      target: 'node',
-      numbersToExpressions: true,
+      target: 'browser-no-eval',
+      numbersToExpressions: false,
       simplify: true,
       splitStrings: false,
       transformObjectKeys: false,
@@ -179,12 +200,14 @@ export async function obfuscateWorkerBundle(rawEsmCode) {
       selfDefending: false,
       debugProtection: false,
       disableConsoleOutput: false,
-      reservedNames: ['__MILI_WORKER_EXPORT__', 'cfConnect', 'fetch']
+      reservedNames: ['__MILI_WORKER_EXPORT__', 'cfConnect', 'connect', 'fetch', 'WebSocketPair']
     });
     return `${headerImport}\n${obfResult.getObfuscatedCode()}\nexport default __MILI_WORKER_EXPORT__;\n`;
   }
 
-  const xorKey = 0x5a;
+  // Fallback obfuscator (no javascript-obfuscator installed). The key is random
+  // per build so a deobfuscator cannot reuse one recovered from another build.
+  const xorKey = randomXorKey();
   const { code: astEncryptedCode, vault } = astEncryptStrings(bodyCode, xorKey);
 
   const vaultRuntime =

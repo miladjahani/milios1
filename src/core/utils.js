@@ -31,6 +31,41 @@ export function encodeBase64Utf8(str) {
   }
 }
 
+// decodeURIComponent throws URIError on malformed input (for example a
+// truncated %-escape). A bad URL must never take a request down with it, so
+// every path segment goes through this wrapper instead.
+export function safeDecodeURI(value) {
+  const raw = String(value ?? '');
+  try {
+    return decodeURIComponent(raw);
+  } catch (_e) {
+    return raw;
+  }
+}
+
+// Cloudflare D1 reports exhausted account limits as ordinary errors. Detecting
+// them lets the Worker answer with an actionable message (and a 503) instead of
+// an opaque internal error, which is what the panel needs to stay usable.
+export function isDatabaseQuotaError(error) {
+  const message = String(error?.message || error || '').toLowerCase();
+  const code = String(error?.code || '').toLowerCase();
+  if (!message && !code) return false;
+  const haystack = `${code} ${message}`;
+  const databaseHint =
+    haystack.includes('d1') ||
+    haystack.includes('database') ||
+    haystack.includes('sqlite') ||
+    haystack.includes('storage');
+  const quotaHint =
+    haystack.includes('exceed') ||
+    haystack.includes('quota') ||
+    haystack.includes('limit') ||
+    haystack.includes('too many') ||
+    haystack.includes('out of memory') ||
+    haystack.includes('denied');
+  return databaseHint && quotaHint;
+}
+
 export function isValidUuid(str) {
   if (!str || typeof str !== 'string') return false;
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str.trim());

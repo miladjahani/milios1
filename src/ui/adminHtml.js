@@ -478,6 +478,18 @@ tbody tr:last-child td{border-bottom:0}
 const ADMIN_JS = `
 (function(){
   'use strict';
+  // A service worker left by an older panel build can keep serving stale HTML
+  // and leave the dashboard stuck on "Loading". Retire it once per page load.
+  try {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function(regs){
+        regs.forEach(function(reg){ reg.unregister(); });
+      }).catch(function(){});
+    }
+    if (window.caches && caches.keys) {
+      caches.keys().then(function(keys){ keys.forEach(function(key){ caches.delete(key); }); }).catch(function(){});
+    }
+  } catch (e) {}
   var S = {
     lang: localStorage.getItem('mili.lang') === 'en' ? 'en' : (localStorage.getItem('mili.lang') === 'fa' ? 'fa' : BOOT.lang),
     theme: localStorage.getItem('mili.theme') || 'system',
@@ -563,6 +575,7 @@ const ADMIN_JS = `
     setTimeout(function(){ el.remove(); }, 4200);
   }
 
+  var API_TIMEOUT_MS = 25000;
   function api(path, options){
     options = options || {};
     var init = { method: options.method || 'GET', headers: {}, credentials: 'same-origin' };
@@ -570,7 +583,18 @@ const ADMIN_JS = `
       init.headers['Content-Type'] = 'application/json';
       init.body = JSON.stringify(options.body);
     }
+    // Without a deadline a stalled Worker leaves the spinner on screen forever
+    // and looks exactly like the Cloudflare 1101 page it usually precedes.
+    var controller = null;
+    var timer = null;
+    if (typeof AbortController === 'function') {
+      controller = new AbortController();
+      init.signal = controller.signal;
+      timer = setTimeout(function(){ try { controller.abort(); } catch (e) {} }, API_TIMEOUT_MS);
+    }
+    function clearTimer(){ if (timer) { clearTimeout(timer); timer = null; } }
     return fetch('/api/v1' + path, init).then(function(res){
+      clearTimer();
       if (res.status === 401) {
         toast(t('loginRequired'), 'err');
         setTimeout(function(){ location.reload(); }, 900);
@@ -584,6 +608,12 @@ const ADMIN_JS = `
         }
         return data;
       });
+    }, function(err){
+      clearTimer();
+      if (err && err.name === 'AbortError') {
+        throw new Error('The server did not answer within ' + Math.round(API_TIMEOUT_MS / 1000) + 's. Open /api/v1/health and check the Worker logs.');
+      }
+      throw err;
     });
   }
 
@@ -1019,12 +1049,13 @@ const ADMIN_JS = `
   }
 
   function showError(err){
-    // A blank dashboard is useless: always explain what failed and how to check
-    // the deployment (the health endpoint needs no session).
+    // A blank dashboard is useless: always explain what failed, offer a retry,
+    // and point at the unauthenticated health endpoint for diagnosis.
     document.getElementById('view').innerHTML = pageHead(t('error'), '') +
       '<div class="alert err"><div><b>' + esc(t('error')) + '</b>' + esc(err && err.message ? err.message : String(err)) +
       '<div class="faint" style="margin-top:6px">If this persists, open <a class="mono" href="/api/v1/health" target="_blank" rel="noopener">/api/v1/health</a> and check that the D1 database is bound to this deployment as <span class="mono">DB</span>.</div>' +
-      '</div></div>';
+      '</div></div>' +
+      '<div class="btn-row" style="margin-top:12px"><button class="btn primary" data-act="refresh-data">' + esc(t('refresh')) + '</button></div>';
   }
 
   function loadPage(page){

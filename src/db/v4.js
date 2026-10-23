@@ -23,8 +23,16 @@ const state = {
   ready: false,
   binding: null,
   memory: false,
-  endpointsSeeded: false
+  endpointsSeeded: false,
+  dbRef: null,
+  lastAttemptAt: 0,
+  lastError: ''
 };
+
+// A failed schema pass must be retried, not remembered as "memory mode":
+// freezing the failure made every later request use tables that never got
+// created. Retries are throttled so a quota-exhausted database is not hammered.
+const SCHEMA_RETRY_MS = 10000;
 
 const memory = {
   sessions: new Map(),
@@ -208,15 +216,25 @@ export function isMemoryMode() {
 }
 
 export async function ensureV4Schema(env = {}) {
-  if (state.ready) return { ok: true, binding: state.binding, memory: state.memory };
   const database = db(env);
+  if (state.ready && state.dbRef === database) {
+    return { ok: true, binding: state.binding, memory: state.memory };
+  }
   if (!database) {
     state.memory = true;
+    state.binding = null;
+    state.dbRef = null;
     seedMemory();
     state.ready = true;
     return { ok: true, binding: null, memory: true };
   }
+  const now = Date.now();
+  if (state.lastError && !state.ready && now - state.lastAttemptAt < SCHEMA_RETRY_MS) {
+    return { ok: false, binding: state.binding || 'DB', memory: false, error: state.lastError };
+  }
+  state.lastAttemptAt = now;
   const detected = detectD1Binding(env);
+  state.binding = detected?.bindingName || 'DB';
   try {
     for (const sql of DDL) await database.prepare(sql).run();
     await database.prepare(
@@ -225,15 +243,19 @@ export async function ensureV4Schema(env = {}) {
     ).run();
     state.ready = true;
     state.memory = false;
-    state.binding = detected?.bindingName || 'DB';
+    state.dbRef = database;
+    state.lastError = '';
     await seedEndpoints(env);
     await seedAutomationJobs(env);
     return { ok: true, binding: state.binding, memory: false };
   } catch (err) {
-    state.memory = true;
-    seedMemory();
-    state.ready = true;
-    return { ok: false, binding: detected?.bindingName || 'DB', memory: true, error: String(err?.message || err) };
+    // Keep the real binding visible: reporting memory mode while writes still
+    // target D1 hid storage failures behind an empty-looking panel.
+    state.memory = false;
+    state.ready = false;
+    state.dbRef = null;
+    state.lastError = String(err?.message || err);
+    return { ok: false, binding: state.binding || 'DB', memory: false, error: state.lastError };
   }
 }
 
