@@ -643,9 +643,12 @@ export async function handlePublicUserStatusApi(request, env, token) {
   if (!user) {
     return jsonResponse({ success: false, message: 'کاربر یافت نشد' }, 404);
   }
+  const globalCfg = await loadGlobalConfig(env);
   const nodes = await generateUserNodesList(user, url.hostname, {
     limit: user.subNodeCount,
-    catalogEndpoints: await listEndpoints(env)
+    catalogEndpoints: await listEndpoints(env),
+    env,
+    panelConfig: globalCfg
   });
   return jsonResponse({
     success: true,

@@ -7,6 +7,15 @@ import { connect as cfConnect } from 'cloudflare:sockets';
 import { isValidUuid, parseAddressAndPort, sha224Hex, sharedDecoder } from './utils.js';
 import { getXhttpPaddingMeta, selectFallbackProxyAddress } from '../subscription/generator.js';
 import { recordUserActivity } from '../db/d1.js';
+import {
+  Sip004Writer,
+  Sip2022Writer,
+  isSsMethod,
+  probeShadowsocks,
+  resolveSsSecret,
+  ssIdentity,
+  ssUserPassword
+} from './sscrypto.js';
 
 const ADDR_TYPE_IPV4 = 1;
 const ADDR_TYPE_DOMAIN = 2;
@@ -709,7 +718,7 @@ export function makeWebSocketReadableStream(ws, earlyDataHeader) {
   });
 }
 
-async function pipeRemoteToWebSocket(remoteSocket, ws, vlessHeader, retryCallback, onBytesTransferred = null) {
+async function pipeRemoteToWebSocket(remoteSocket, ws, vlessHeader, retryCallback, onBytesTransferred = null, encodeOutbound = null) {
   let header = vlessHeader;
   let hasData = false;
   let retried = false;
@@ -759,6 +768,17 @@ async function pipeRemoteToWebSocket(remoteSocket, ws, vlessHeader, retryCallbac
         chunk = concatUint8Arrays(header, chunk);
         header = null;
       }
+      if (encodeOutbound) {
+        // Shadowsocks encrypts every frame in place of the coalescer's batching.
+        const plainLength = chunk.byteLength;
+        const sealedChunk = await encodeOutbound(chunk);
+        if (!sealedChunk || !sealedChunk.byteLength) continue;
+        coalescer.flush();
+        ws.send(sealedChunk);
+        if (onBytesTransferred) onBytesTransferred(plainLength);
+        if (useByob) buffer = new ArrayBuffer(CHUNK_SIZE);
+        continue;
+      }
       if (chunk.byteLength >= CHUNK_SIZE >> 1) {
         coalescer.flush();
         ws.send(chunk);
@@ -801,7 +821,8 @@ async function establishOutboundAndPipe(
   remoteState,
   effectiveCfg,
   fetcher = null,
-  onBytesTransferred = null
+  onBytesTransferred = null,
+  encodeOutbound = null
 ) {
   const fallbackAddr = (effectiveCfg.p || '').trim();
   const workerRegion = (effectiveCfg.wk || 'CF').trim().toUpperCase();
@@ -854,7 +875,7 @@ async function establishOutboundAndPipe(
     sock.closed.catch(() => {}).finally(() => {
       if (remoteState.socket === sock) closeSocketSafe(ws);
     });
-    pipeRemoteToWebSocket(sock, ws, vlessRespHeader, retryCb, onBytesTransferred).finally(() => {
+    pipeRemoteToWebSocket(sock, ws, vlessRespHeader, retryCb, onBytesTransferred, encodeOutbound).finally(() => {
       if (remoteState.socket === sock) {
         try { writer.releaseLock(); } catch (_e) {}
         remoteState.writer = null;
@@ -975,6 +996,26 @@ export async function handleWebSocketUpgrade(request, env, ctx, globalCfg, allUs
   let isDnsSession = false;
   let detectedProto = null;
   let matchedUserObj = null;
+  // Shadowsocks AEAD session state: the reader decrypts uploads and the writer
+  // encrypts everything sent back to the client.
+  let ssReader = null;
+  let ssEncoder = null;
+  let ssProbeBuffer = new Uint8Array(0);
+  let ssSecretPromise = null;
+  const getSsSecret = () => {
+    if (!ssSecretPromise) ssSecretPromise = resolveSsSecret(env);
+    return ssSecretPromise;
+  };
+  const ssCandidates = () => {
+    const list = [];
+    for (const u of allUsers) {
+      if (u && ssIdentity(u)) list.push({ user: u, password: ssUserPassword(u, globalCfg) });
+    }
+    if (!list.length && globalCfg.es === 'yes') {
+      list.push({ user: { uuid: adminUuid, username: 'admin', enabled: true, config: globalCfg }, password: ssUserPassword(null, globalCfg) });
+    }
+    return list;
+  };
   let sessionBytes = 0;
   let draining = false;
   let closed = false;
@@ -1049,6 +1090,11 @@ export async function handleWebSocketUpgrade(request, env, ctx, globalCfg, allUs
           if (closed) return;
           const data = toUint8Array(chunk);
           if (isDnsSession) return await handleUdpDns(data, serverWs, null, fetcher);
+          if (ssReader) {
+            const plain = await ssReader.feed(data);
+            if (plain.byteLength && !enqueueUpload(plain)) throw new Error('upload queue overflow');
+            return;
+          }
           if (remoteState.socket && remoteState.writer) {
             if (!enqueueUpload(data)) throw new Error('upload queue overflow');
             return;
@@ -1125,46 +1171,89 @@ export async function handleWebSocketUpgrade(request, env, ctx, globalCfg, allUs
             }
           }
 
-          // تلاش برای Shadowsocks (SS-WS)
-          if (data.byteLength >= 7) {
-            const ssRes = parseShadowsocksHeader(data);
-            if (!ssRes.hasError) {
-              const querySsPass = reqUrl.searchParams.get('sspass') || '';
-              let ssUser = null;
-              if (querySsPass) {
-                ssUser = allUsers.find(u => (u.config?.sspass || u.uuid) === querySsPass);
-              }
-              if (!ssUser) {
-                ssUser = allUsers.find(u => u.config?.es === 'yes') || (globalCfg.es === 'yes' ? { id: null, username: 'admin', uuid: adminUuid, config: globalCfg } : null);
-              }
-              if (!ssUser && allUsers.length > 0) {
-                ssUser = allUsers[0];
-              }
-              if (ssUser) {
-                detectedProto = 'ss';
-                matchedUserObj = ssUser;
-                const userCfg = {
-                  ...globalCfg,
-                  ...(matchedUserObj?.config || {}),
-                  ...(queryP ? { p: queryP } : {}),
-                  ...(queryWk ? { wk: queryWk } : {}),
-                  ...(queryRm ? { rm: queryRm } : {}),
-                  ...(queryS ? { s: queryS } : {})
-                };
-                await establishOutboundAndPipe(
-                  ssRes.addressType,
-                  ssRes.hostname,
-                  ssRes.port,
-                  ssRes.rawPayload,
-                  serverWs,
-                  null,
-                  remoteState,
-                  userCfg,
-                  fetcher,
-                  addTransferredBytes
-                );
-                return;
-              }
+          // تلاش برای Shadowsocks (SS-WS) با الگوریتم‌های AEAD 2017 و 2022
+          ssProbeBuffer = ssProbeBuffer.byteLength ? concatUint8Arrays(ssProbeBuffer, data) : data;
+          // 43 bytes is the shortest possible first frame (16-byte salt for
+          // 2022-blake3-aes-128-gcm + 11-byte fixed header + 16-byte tag).
+          if (ssProbeBuffer.byteLength < 43) return;
+
+          const ssHit = await probeShadowsocks(ssProbeBuffer, ssCandidates(), {
+            secret: await getSsSecret(),
+            methods: isSsMethod(globalCfg.ssmethod) ? [globalCfg.ssmethod] : undefined
+          });
+          if (ssHit) {
+            detectedProto = 'ss';
+            matchedUserObj = ssHit.user;
+            ssReader = ssHit.reader;
+            ssProbeBuffer = new Uint8Array(0);
+            ssEncoder = ssHit.meta.family === '2022'
+              ? new Sip2022Writer(ssHit.method, ssHit.pskBytes, ssHit.reader.requestSalt)
+              : new Sip004Writer(ssHit.method, ssHit.password);
+            const userCfg = {
+              ...globalCfg,
+              ...(matchedUserObj?.config || {}),
+              ...(queryP ? { p: queryP } : {}),
+              ...(queryWk ? { wk: queryWk } : {}),
+              ...(queryRm ? { rm: queryRm } : {}),
+              ...(queryS ? { s: queryS } : {})
+            };
+            const encodeOutbound = async bytes => ssEncoder.encode(bytes);
+            await establishOutboundAndPipe(
+              ssHit.address.atyp === 3 ? 2 : ssHit.address.atyp === 4 ? 3 : 1,
+              ssHit.address.host,
+              ssHit.address.port,
+              ssHit.initialData,
+              serverWs,
+              null,
+              remoteState,
+              userCfg,
+              fetcher,
+              addTransferredBytes,
+              encodeOutbound
+            );
+            return;
+          }
+
+          // سازگاری با لینک‌های قدیمی cipher=none (بدون AEAD)
+          if (ssProbeBuffer.byteLength >= 4096) {
+            throw new Error('Invalid protocol or authentication failed');
+          }
+          const plainSs = parseShadowsocksHeader(ssProbeBuffer);
+          if (!plainSs.hasError) {
+            const querySsPass = reqUrl.searchParams.get('sspass') || '';
+            let ssUser = null;
+            if (querySsPass) {
+              ssUser = allUsers.find(u => (u.config?.sspass || u.uuid) === querySsPass);
+            }
+            if (!ssUser) {
+              ssUser = allUsers.find(u => u.config?.es === 'yes') || (globalCfg.es === 'yes' ? { id: null, username: 'admin', uuid: adminUuid, config: globalCfg } : null);
+            }
+            if (!ssUser && allUsers.length > 0) ssUser = allUsers[0];
+            if (ssUser) {
+              detectedProto = 'ss';
+              matchedUserObj = ssUser;
+              ssProbeBuffer = new Uint8Array(0);
+              const userCfg = {
+                ...globalCfg,
+                ...(matchedUserObj?.config || {}),
+                ...(queryP ? { p: queryP } : {}),
+                ...(queryWk ? { wk: queryWk } : {}),
+                ...(queryRm ? { rm: queryRm } : {}),
+                ...(queryS ? { s: queryS } : {})
+              };
+              await establishOutboundAndPipe(
+                plainSs.addressType,
+                plainSs.hostname,
+                plainSs.port,
+                plainSs.rawPayload,
+                serverWs,
+                null,
+                remoteState,
+                userCfg,
+                fetcher,
+                addTransferredBytes
+              );
+              return;
             }
           }
 

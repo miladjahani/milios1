@@ -4,7 +4,7 @@
 // the API can never write arbitrary rows into system_config.
 // ============================================================================
 
-import { CONFIG_DEFAULTS, FRAGMENT_PRESETS, PATH_PATTERNS, CF_PORT_CHOICES } from './defaults.js';
+import { CONFIG_DEFAULTS, FRAGMENT_PRESETS, PATH_PATTERNS, CF_PORT_CHOICES, SS_METHOD_OPTIONS } from './defaults.js';
 import { DNS_PROFILES, DNS_MODES, OUTPUT_FORMATS, TLS_FINGERPRINTS } from './catalog.js';
 import { isValidDomain } from '../core/utils.js';
 
@@ -140,7 +140,7 @@ export const SETTINGS_SCHEMA = [
   },
   {
     key: 'es', section: 'proxy', type: 'boolean', default: CONFIG_DEFAULTS.es,
-    ...text('Shadowsocks', 'Shadowsocks', 'در این ورکر فقط cipher=none و v2ray-plugin پشتیبانی می‌شود.', 'Only cipher=none with v2ray-plugin is implemented by this Worker.')
+    ...text('Shadowsocks', 'Shadowsocks', 'روی v2ray-plugin و الگوریتم‌های واقعی AEAD (۲۰۱۷ و ۲۰۲۲).', 'Runs on v2ray-plugin with real AEAD ciphers (2017 and 2022).')
   },
   {
     key: 'ports', section: 'proxy', type: 'ports', default: CONFIG_DEFAULTS.ports,
@@ -185,6 +185,103 @@ export const SETTINGS_SCHEMA = [
     ...text('سیاست بهینه‌سازی', 'Optimization policy')
   },
 
+  // ------------------------------------------------------------------- cfnew
+  // Every input the upstream CFnew panel exposes, so nothing has to be edited
+  // in the dashboard's raw JSON or through environment variables anymore.
+  {
+    key: 'yx', section: 'cfnew', type: 'textarea', default: CONFIG_DEFAULTS.yx, maxLength: 8000,
+    ...text('آی‌پی/پروکسی ترجیحی (yx)', 'Preferred IPs / proxies (yx)',
+      'هر خط یا با کاما: آدرس، آدرس#نام، یا socks5://host:port#DE برای نود چندلوکیشن.',
+      'One per line or comma: address, address#name, or socks5://host:port#DE for a location node.')
+  },
+  {
+    key: 'yxURL', section: 'cfnew', type: 'url', default: CONFIG_DEFAULTS.yxURL,
+    ...text('آدرس لیست زنده (yxURL)', 'Live list URL (yxURL)',
+      'هر بار زنده خوانده می‌شود؛ آدرس‌ها و پروکسی‌های داخلش به نود تبدیل می‌شوند.',
+      'Read live on every request; its addresses and proxies become nodes.')
+  },
+  {
+    key: 'epi', section: 'cfnew', type: 'boolean', default: CONFIG_DEFAULTS.epi,
+    ...text('آی‌پی‌های ثابت CF', 'Static CF IPs')
+  },
+  {
+    key: 'epd', section: 'cfnew', type: 'boolean', default: CONFIG_DEFAULTS.epd,
+    ...text('دامنه‌های مستقیم CF', 'Direct CF domains')
+  },
+  {
+    key: 'egi', section: 'cfnew', type: 'boolean', default: CONFIG_DEFAULTS.egi,
+    ...text('خواندن لیست زنده (egi)', 'Read the live list (egi)')
+  },
+  {
+    key: 'ena', section: 'cfnew', type: 'boolean', default: CONFIG_DEFAULTS.ena,
+    ...text('نود مستقیم سرور (ena)', 'Direct origin node (ena)')
+  },
+  {
+    key: 'yxby', section: 'cfnew', type: 'boolean', default: 'no',
+    ...text('نادیده‌گرفتن yx', 'Bypass yx', 'نودهای ترجیحی و لیست زنده ساخته نمی‌شوند.', 'Preferred and live-list nodes are skipped.')
+  },
+  {
+    key: 'ispMobile', section: 'cfnew', type: 'boolean', default: CONFIG_DEFAULTS.ispMobile,
+    ...text('موبایل (UOUIN)', 'Mobile line')
+  },
+  {
+    key: 'ispUnicom', section: 'cfnew', type: 'boolean', default: CONFIG_DEFAULTS.ispUnicom,
+    ...text('شبکهٔ دوم (UOUIN)', 'Second ISP line')
+  },
+  {
+    key: 'ispTelecom', section: 'cfnew', type: 'boolean', default: CONFIG_DEFAULTS.ispTelecom,
+    ...text('شبکهٔ سوم (UOUIN)', 'Third ISP line')
+  },
+  {
+    key: 'locationNodeCount', section: 'cfnew', type: 'number', default: CONFIG_DEFAULTS.locationNodeCount, min: 1, max: 50,
+    ...text('تعداد نود چندلوکیشن', 'Location nodes', 'در حالت MULTI هر نود از یک کشور متفاوت ساخته می‌شود.', 'MULTI builds one node per country before repeating.')
+  },
+  {
+    key: 'sspass', section: 'cfnew', type: 'text', default: CONFIG_DEFAULTS.sspass, maxLength: 200,
+    ...text('رمز Shadowsocks (sspass)', 'Shadowsocks password (sspass)', 'خالی بماند از UUID کاربر استفاده می‌شود.', 'Empty means the user UUID is used.')
+  },
+  {
+    key: 'ssmethod', section: 'cfnew', type: 'select', default: CONFIG_DEFAULTS.ssmethod,
+    options: SS_METHOD_OPTIONS.map(value => ({ value, label: value === 'auto' ? 'auto (همهٔ الگوریتم‌ها)' : value })),
+    ...text('الگوریتم Shadowsocks (ssmethod)', 'Shadowsocks cipher (ssmethod)', 'در حالت auto همهٔ الگوریتم‌ها در ساب‌لینک توزیع می‌شوند.', 'auto spreads every cipher across the subscription.')
+  },
+  {
+    key: 'tp', section: 'cfnew', type: 'text', default: CONFIG_DEFAULTS.tp, maxLength: 200,
+    ...text('رمز Trojan (tp)', 'Trojan password (tp)')
+  },
+  {
+    key: 's', section: 'cfnew', type: 'text', default: CONFIG_DEFAULTS.s, maxLength: 400,
+    ...text('پروکسی خروجی (s)', 'Outgoing proxy (s)', 'مثل socks5://host:port؛ خروجی همهٔ نودها از آن می‌رود.', 'e.g. socks5://host:port; every node exits through it.')
+  },
+  {
+    key: 'scu', section: 'cfnew', type: 'url', default: CONFIG_DEFAULTS.scu,
+    ...text('مبدل اشتراک (scu)', 'Subscription converter (scu)')
+  },
+  {
+    key: 'wk', section: 'cfnew', type: 'text', default: CONFIG_DEFAULTS.wk, maxLength: 8,
+    ...text('کد منطقهٔ ورکر (wk)', 'Worker region (wk)', 'اختیاری؛ خالی یعنی خودکار.', 'Optional; empty means automatic.')
+  },
+  {
+    key: 'ae', section: 'cfnew', type: 'boolean', default: 'no',
+    ...text('اجازهٔ مسیرهای دلخواه (ae)', 'Allow arbitrary endpoints (ae)')
+  },
+  {
+    key: 'jk', section: 'cfnew', type: 'boolean', default: 'no',
+    ...text('زنجیرهٔ اینترنت خانگی (jk)', 'Home-internet chain (jk)', 'فقط برای کلاینتی که آدرس زنجیره را می‌خواهد.', 'Only for clients that request the chained target.')
+  },
+  {
+    key: 'fragmentLength', section: 'cfnew', type: 'text', default: CONFIG_DEFAULTS.fragmentLength, maxLength: 32,
+    ...text('طول فرگمنت', 'Fragment length')
+  },
+  {
+    key: 'fragmentInterval', section: 'cfnew', type: 'text', default: CONFIG_DEFAULTS.fragmentInterval, maxLength: 32,
+    ...text('فاصلهٔ فرگمنت', 'Fragment interval')
+  },
+  {
+    key: 'fragmentPackets', section: 'cfnew', type: 'text', default: CONFIG_DEFAULTS.fragmentPackets, maxLength: 32,
+    ...text('بسته‌های فرگمنت', 'Fragment packets')
+  },
+
   // ------------------------------------------------------------ subscriptions
   {
     key: 'subFormats', section: 'subscriptions', type: 'multiselect', default: 'singbox,clash,uri',
@@ -225,6 +322,7 @@ export const SETTINGS_SECTIONS = [
   { id: 'security', label: { fa: 'امنیت', en: 'Security' } },
   { id: 'network', label: { fa: 'شبکه و DNS', en: 'Network & DNS' } },
   { id: 'proxy', label: { fa: 'موتور پروکسی', en: 'Proxy engine' } },
+  { id: 'cfnew', label: { fa: 'ورودی‌های CFnew', en: 'CFnew inputs' } },
   { id: 'subscriptions', label: { fa: 'اشتراک‌ها', en: 'Subscriptions' } },
   { id: 'appearance', label: { fa: 'ظاهر', en: 'Appearance' } },
   { id: 'cloudflare', label: { fa: 'کلادفلر', en: 'Cloudflare' } }
@@ -438,10 +536,10 @@ export function detectConflicts(settings = {}) {
     }
   }
 
-  if (on('es')) {
+  if (on('es') && String(cfg.ssmethod || 'auto') === 'auto' && String(cfg.subNodeCount || 50) < 3) {
     out.push({
-      code: 'SHADOWSOCKS_PLAIN', severity: 'warning', fields: ['es'],
-      message: 'Shadowsocks nodes in this Worker use cipher "none" with v2ray-plugin. They provide transport encryption via TLS/WebSocket only and are not equivalent to AEAD Shadowsocks.'
+      code: 'SS_FEW_NODES', severity: 'warning', fields: ['es', 'ssmethod', 'subNodeCount'],
+      message: 'ssmethod is auto but the node cap is very low, so not every Shadowsocks cipher fits in one subscription.'
     });
   }
 

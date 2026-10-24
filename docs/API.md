@@ -85,7 +85,7 @@ over-quota users are refused with `403`.
 
 | Method | Path | Notes |
 | --- | --- | --- |
-| POST | `/api/v1/scanner/scan` | `{ targets:[{ host, port, endpointId?, levels?:[] }], levels?:[], concurrency? }`. Each result lists `checks` with `performed` flags, `verifiedLevel`, `status`, `score`. |
+| POST | `/api/v1/scanner/scan` | `{ targets:[{ host, port, endpointId?, levels?:[], country?, proxy? }], levels?:[], concurrency?, apply? }`. Each result lists `checks` with `performed` flags, `verifiedLevel`, `status`, `score`. With `apply:true` every reachable target is written to the node pool: addresses as preferred nodes, `proxy` targets as chained location nodes. Response carries `applied`. |
 | GET | `/api/v1/scanner/history?endpointId=` | Stored health history. |
 
 ## DNS, TLS, ECH catalogs

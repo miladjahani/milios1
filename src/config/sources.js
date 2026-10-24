@@ -8,23 +8,27 @@ const ZEUS_VIP = code => `https://raw.githubusercontent.com/panel-zeus/Z-E-U-S/m
 const TRIO = (code, kind) => `https://raw.githubusercontent.com/trio666/proxy-checker/main/country/${code}/${kind}.txt`;
 
 // منابع اختصاصی هر کشور (Z-E-U-S vip + trio666 کشوری)
+// Each country must have at least one real proxy list, otherwise a "fixed
+// location" would only be a renamed Cloudflare node. trio666 publishes
+// per-country SOCKS5 and HTTP lists, so every country below can build genuine
+// country-egress nodes.
 export const COUNTRY_EXTRA_PROXY_SOURCES = {
-  AE: [ZEUS_VIP('AE')],
-  BG: [ZEUS_VIP('BG')],
-  CA: [ZEUS_VIP('CA')],
+  AE: [ZEUS_VIP('AE'), TRIO('AE', 'socks5'), TRIO('AE', 'http')],
+  BG: [ZEUS_VIP('BG'), TRIO('BG', 'socks5'), TRIO('BG', 'http')],
+  CA: [ZEUS_VIP('CA'), TRIO('CA', 'socks5'), TRIO('CA', 'http')],
   DE: [ZEUS_VIP('DE'), TRIO('DE', 'socks5'), TRIO('DE', 'http')],
-  GB: [ZEUS_VIP('GB')],
-  IT: [ZEUS_VIP('IT')],
-  KZ: [ZEUS_VIP('KZ')],
-  LV: [ZEUS_VIP('LV')],
+  GB: [ZEUS_VIP('GB'), TRIO('GB', 'socks5'), TRIO('GB', 'http')],
+  IT: [ZEUS_VIP('IT'), TRIO('IT', 'socks5'), TRIO('IT', 'http')],
+  KZ: [ZEUS_VIP('KZ'), TRIO('KZ', 'socks5'), TRIO('KZ', 'http')],
+  LV: [ZEUS_VIP('LV'), TRIO('LV', 'socks5'), TRIO('LV', 'http')],
   NL: [ZEUS_VIP('NL'), TRIO('NL', 'socks5'), TRIO('NL', 'http')],
-  NO: [ZEUS_VIP('NO')],
-  SE: [ZEUS_VIP('SE')],
+  NO: [ZEUS_VIP('NO'), TRIO('NO', 'socks5'), TRIO('NO', 'http')],
+  SE: [ZEUS_VIP('SE'), TRIO('SE', 'socks5'), TRIO('SE', 'http')],
   TH: [ZEUS_VIP('TH'), TRIO('TH', 'socks5'), TRIO('TH', 'http')],
-  TR: [ZEUS_VIP('TR'), 'https://raw.githubusercontent.com/dimzon/scaling-sniffle/main/by-country/TR.txt'],
+  TR: [ZEUS_VIP('TR'), TRIO('TR', 'socks5'), TRIO('TR', 'http'), 'https://raw.githubusercontent.com/dimzon/scaling-sniffle/main/by-country/TR.txt'],
   US: [ZEUS_VIP('US'), TRIO('US', 'socks5'), TRIO('US', 'http')],
-  UZ: [ZEUS_VIP('UZ')],
-  FR: ['https://raw.githubusercontent.com/dimzon/scaling-sniffle/main/by-country/FR.txt'],
+  UZ: [ZEUS_VIP('UZ'), TRIO('UZ', 'socks5'), TRIO('UZ', 'http')],
+  FR: [TRIO('FR', 'socks5'), TRIO('FR', 'http'), 'https://raw.githubusercontent.com/dimzon/scaling-sniffle/main/by-country/FR.txt'],
   FI: [TRIO('FI', 'socks5'), TRIO('FI', 'http')],
   SG: [TRIO('SG', 'socks5'), TRIO('SG', 'http')],
   RU: [TRIO('RU', 'socks5'), TRIO('RU', 'http'), 'https://raw.githubusercontent.com/dimzon/scaling-sniffle/main/by-country/RU.txt'],
@@ -263,15 +267,19 @@ export const IP_RANGE_SOURCES = {
 // بتوان در پنل و در گزارش اتوماسیون ذخیره کرد.
 // ============================================================================
 
+// `feeds` tells the apply step what a list becomes:
+//   address → a node address in the preferred pool (yx)
+//   proxy   → a chained location node (static CF address + country egress)
+//   scanner → live read/probe only (ranges are not single addresses)
 export const SOURCE_CATEGORIES = [
-  { id: 'cf-vip', label: 'CF VIP کشوری (Z-E-U-S)', labelEn: 'CF VIP per country', kind: 'proxy', appliesToYx: false },
-  { id: 'socks5', label: 'SOCKS5 عمومی', labelEn: 'Public SOCKS5', kind: 'proxy', appliesToYx: false },
-  { id: 'http', label: 'HTTP/HTTPS عمومی', labelEn: 'Public HTTP/HTTPS', kind: 'proxy', appliesToYx: false },
-  { id: 'mixed', label: 'لیست ترکیبی (ALL)', labelEn: 'Mixed (ALL)', kind: 'proxy', appliesToYx: false },
-  { id: 'residential', label: 'پروکسی مسکونی', labelEn: 'Residential', kind: 'proxy', appliesToYx: false },
-  { id: 'cf-ip', label: 'آی‌پی/دامنهٔ فرانت‌شدهٔ CF', labelEn: 'CF-fronted IPs', kind: 'address', appliesToYx: true, family: 'any' },
-  { id: 'ipv6-range', label: 'رنج IPv6', labelEn: 'IPv6 ranges', kind: 'range', appliesToYx: false, family: 'ipv6' },
-  { id: 'ip-range', label: 'رنج IPv4', labelEn: 'IPv4 ranges', kind: 'range', appliesToYx: false, family: 'ipv4' }
+  { id: 'cf-vip', label: 'CF VIP کشوری (Z-E-U-S)', labelEn: 'CF VIP per country', kind: 'proxy', feeds: 'proxy', scheme: 'socks5', appliesToYx: true },
+  { id: 'socks5', label: 'SOCKS5 عمومی', labelEn: 'Public SOCKS5', kind: 'proxy', feeds: 'proxy', scheme: 'socks5', appliesToYx: true },
+  { id: 'http', label: 'HTTP/HTTPS عمومی', labelEn: 'Public HTTP/HTTPS', kind: 'proxy', feeds: 'proxy', scheme: 'http', appliesToYx: true },
+  { id: 'mixed', label: 'لیست ترکیبی (ALL)', labelEn: 'Mixed (ALL)', kind: 'proxy', feeds: 'proxy', scheme: 'socks5', appliesToYx: true },
+  { id: 'residential', label: 'پروکسی مسکونی', labelEn: 'Residential', kind: 'proxy', feeds: 'proxy', scheme: 'socks5', appliesToYx: true },
+  { id: 'cf-ip', label: 'آی‌پی/دامنهٔ فرانت‌شدهٔ CF', labelEn: 'CF-fronted IPs', kind: 'address', feeds: 'address', appliesToYx: true, family: 'any' },
+  { id: 'ipv6-range', label: 'رنج IPv6', labelEn: 'IPv6 ranges', kind: 'range', feeds: 'scanner', appliesToYx: false, family: 'ipv6' },
+  { id: 'ip-range', label: 'رنج IPv4', labelEn: 'IPv4 ranges', kind: 'range', feeds: 'scanner', appliesToYx: false, family: 'ipv4' }
 ];
 
 const SOURCE_CATEGORY_BY_ID = new Map(SOURCE_CATEGORIES.map(category => [category.id, category]));
@@ -296,7 +304,10 @@ function entriesFor(categoryId, items = []) {
       id: `${categoryId}-${index + 1}`,
       category: categoryId,
       kind: category?.kind || 'proxy',
+      feeds: category?.feeds || 'scanner',
+      scheme: category?.scheme || '',
       family: category?.family || 'any',
+      country: String(typeof item === 'string' ? '' : item.country || '').toUpperCase(),
       label: labelPrefix ? `${labelPrefix} · ${labelForUrl(url)}` : labelForUrl(url),
       url
     };
@@ -307,7 +318,7 @@ function entriesFor(categoryId, items = []) {
 const COUNTRY_ENTRIES = entriesFor(
   'cf-vip',
   Object.entries(COUNTRY_EXTRA_PROXY_SOURCES).flatMap(([code, urls]) =>
-    (urls || []).map(url => ({ url, labelPrefix: `${COUNTRY_META[code]?.flag || ''} ${code}`.trim() }))
+    (urls || []).map(url => ({ url, country: code, labelPrefix: `${COUNTRY_META[code]?.flag || ''} ${code}`.trim() }))
   )
 );
 

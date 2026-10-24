@@ -18,6 +18,15 @@ export const BRAND_UPPER = 'MILICONFIG';
 export const VERSION = 'v4.0';
 export const DEFAULT_ADMIN_UUID = '351c9981-04b6-4103-aa4b-864aa9c91469';
 export const MAX_USERS_LIMIT = 5;
+// Must stay in sync with SS_METHODS in src/core/sscrypto.js (auto = every cipher).
+export const SS_METHOD_OPTIONS = [
+  'auto',
+  '2022-blake3-aes-128-gcm',
+  '2022-blake3-aes-256-gcm',
+  'aes-128-gcm',
+  'aes-256-gcm',
+  'chacha20-ietf-poly1305'
+];
 export const TELEGRAM_SUPPORT = '@miliconfig';
 
 // ۳ نود هاردکدشده اطلاع‌رسانی که باید در ابتدای تمام سابلینک‌ها قرار گیرند
@@ -34,8 +43,7 @@ export const CONFIG_DEFAULTS = {
   ex: 'yes',
   es: 'yes', // شادوساکس (Shadowsocks) — طبق درخواست همیشه در سابلینک حاضر است
   sspass: '',
-  // هسته این ورکر هدر Shadowsocks را به‌صورت متنی (بدون AEAD) می‌خواند، بنابراین تنها متد سازگار «none» است
-  ssmethod: 'none',
+  ssmethod: 'auto',
   ech: 'no',
   tp: '',
   customDNS: 'https://223.5.5.5/dns-query',
@@ -592,8 +600,10 @@ export function normalizeEffectiveConfig(rawConfig = {}) {
     const rotationMinutes = parseInt(rotationRaw, 10);
     snap.ipRotation = Number.isFinite(rotationMinutes) && rotationMinutes > 0 ? `${rotationMinutes}m` : 'off';
   }
-  // تنها متد Shadowsocks پشتیبانی‌شده توسط هسته همین ورکر «none» است؛ انتخاب‌های دیگر باعث بی‌پاسخ شدن نود می‌شدند
-  snap.ssmethod = 'none';
+  // شادوساکس واقعی (AEAD 2017 و 2022) پشتیبانی می‌شود؛ «auto» یعنی همهٔ
+  // الگوریتم‌ها به‌صورت خودکار در ساب‌لینک توزیع شوند.
+  const ssMethodRaw = String(snap.ssmethod || '').trim().toLowerCase();
+  snap.ssmethod = SS_METHOD_OPTIONS.includes(ssMethodRaw) ? ssMethodRaw : 'auto';
   // اگر پریست فرگمنت روی حالت سفارشی باشد و مقادیر خالی بمانند، از مقادیر پیش‌فرض ضد-DPI استفاده می‌شود
   if (!snap.fragmentLength) snap.fragmentLength = '100-200';
   if (!snap.fragmentInterval) snap.fragmentInterval = '10-20';

@@ -3,11 +3,14 @@ import assert from 'node:assert/strict';
 import {
   buildEchParamValue,
   buildFragmentValue,
+  applyPanelOwnedConfig,
+  buildLocationSourceList,
   filterAddressFamily,
   generateUserNodesList,
   getStaticCfAddresses,
   getXhttpPaddingMeta,
-  parseCustomPreferredString
+  parseCustomPreferredString,
+  pickMultiLocationCountries
 } from '../src/subscription/generator.js';
 import { OFFICIAL_DIRECT_IPV6, parseNodePorts } from '../src/config/defaults.js';
 import { parseHttpsRecord } from '../src/core/ech.js';
@@ -59,12 +62,77 @@ test('port parser keeps only valid unique ports', () => {
 });
 
 test('custom preferred strings separate IPs, domains and proxies', () => {
-  const parsed = parseCustomPreferredString('104.16.0.1:443#cf, example.com:8443, 127.0.0.1:1080#local, socks5://10.0.0.1:1080#skip');
+  const parsed = parseCustomPreferredString('104.16.0.1:443#cf, example.com:8443, 127.0.0.1:1080#local, socks5://10.0.0.1:1080#DE-germany');
   assert.equal(parsed.ipList.length, 1);
   assert.equal(parsed.domainList.length, 1);
-  // پورت غیر کلادفلر یعنی پروکسی خروجی، و خطوط دارای اسکیم عمداً رد می‌شوند
-  assert.equal(parsed.proxyList.length, 1);
+  // پورت غیر کلادفلر یعنی پروکسی خروجی؛ خطوط دارای اسکیم هم به نود چندلوکیشن تبدیل می‌شوند
+  assert.equal(parsed.proxyList.length, 2);
   assert.equal(parsed.proxyList[0].proxy, 'socks5://127.0.0.1:1080');
+  const applied = parsed.proxyList.find(item => item.proxy === 'socks5://10.0.0.1:1080');
+  assert.ok(applied, 'a scheme line is kept as an egress proxy');
+  assert.equal(applied.country, 'DE');
+});
+
+test('multi-location nodes cover distinct real countries and keep their egress proxy', () => {
+  const nodes = buildLocationSourceList(
+    [
+      { proxy: 'socks5://1.2.3.4:1080', country: 'DE' },
+      { proxy: 'socks5://5.6.7.8:1080', country: 'NL' },
+      { proxy: 'socks5://9.9.9.9:1080', country: 'US' }
+    ],
+    { ipv4: 'yes', ipv6: 'no', locationNodeCount: 3 },
+    'worker.example.workers.dev'
+  );
+  assert.equal(nodes.length, 3);
+  assert.deepEqual([...new Set(nodes.map(node => node.country))].sort(), ['DE', 'NL', 'US']);
+  assert.ok(nodes.every(node => /^socks5:\/\//.test(node.proxy)));
+  // The node address stays a real Cloudflare address so the node answers.
+  assert.ok(nodes.every(node => node.ip && !node.ip.includes('://')));
+});
+
+test('a proxy applied to yx becomes chained location nodes in the subscription', async () => {
+  const links = await generateUserNodesList(
+    {
+      uuid: '11111111-2222-4333-8444-555555555555',
+      config: {
+        ev: 'yes', et: 'no', ex: 'no', es: 'no',
+        ipv4: 'yes', ipv6: 'no', epi: 'no', epd: 'no', egi: 'no',
+        yx: 'socks5://10.1.1.1:1080#DE-cf-vip-1',
+        subNodeCount: 10
+      }
+    },
+    'worker.example.workers.dev',
+    {}
+  );
+  assert.ok(links.some(link => link.includes('s%3Dsocks5')), 'the egress proxy rides in the path');
+  assert.ok(links.some(link => link.includes('cc%3DDE')), 'the node is tagged with its real country');
+  assert.equal(links.some(link => /@10\.1\.1\.1:/.test(link)), false, 'the proxy is never used as the node address');
+});
+
+test('panel CFnew settings win over the per-user config snapshot', async () => {
+  const links = await generateUserNodesList(
+    {
+      uuid: '11111111-2222-4333-8444-555555555555',
+      config: {
+        ev: 'yes', et: 'no', ex: 'no', es: 'no',
+        ipv4: 'yes', ipv6: 'no', epi: 'no', epd: 'no', egi: 'no',
+        yx: '', subNodeCount: 8
+      }
+    },
+    'worker.example.workers.dev',
+    { panelConfig: { yx: 'socks5://10.1.1.1:1080#NL-panel', locationNodeCount: 2, epi: 'no', epd: 'no', egi: 'no' } }
+  );
+  assert.ok(links.some(link => link.includes('s%3Dsocks5')), 'the panel pool reaches the subscription');
+  assert.ok(links.some(link => link.includes('cc%3DNL')));
+  assert.deepEqual(applyPanelOwnedConfig({ yx: 'a', ev: 'no' }, { yx: 'b' }), { yx: 'b', ev: 'no' });
+});
+
+test('MULTI rotates a slice of the live country list without repeats', () => {
+  const picked = pickMultiLocationCountries(['DE', 'NL', 'US', 'GB', 'TR', 'AE'], 4);
+  assert.equal(picked.length, 4);
+  assert.equal(new Set(picked).size, 4);
+  assert.ok(picked.every(code => /^[A-Z]{2}$/.test(code)));
+  assert.deepEqual(pickMultiLocationCountries([], 4), []);
 });
 
 test('static addresses interleave IPv6 so the family survives a node cap', () => {
@@ -97,6 +165,21 @@ test('a resolved ECH config is embedded in subscription links', async () => {
   );
   assert.ok(links.length > 0);
   assert.ok(links.some(link => link.includes(`ech=${encodeURIComponent(config)}`)), 'links carry the found config');
+});
+
+test('the IPv6 switch also filters catalog endpoints', async () => {
+  const links = await generateUserNodesList(
+    { uuid: '11111111-2222-4333-8444-555555555555', config: { ev: 'yes', et: 'no', ex: 'no', es: 'no', ipv4: 'yes', ipv6: 'no', epi: 'no', epd: 'no', egi: 'no', subNodeCount: 20 } },
+    'worker.example.workers.dev',
+    {
+      catalogEndpoints: [
+        { host: '2606:4700::1111', port: 443, protocol: 'vless', enabled: true, name: 'v6-endpoint' },
+        { host: '104.16.0.1', port: 443, protocol: 'vless', enabled: true, name: 'v4-endpoint' }
+      ]
+    }
+  );
+  assert.equal(links.some(link => /@\[/.test(link)), false, 'no IPv6 endpoint sneaks past the switch');
+  assert.ok(links.some(link => link.includes('104.16.0.1')), 'the IPv4 endpoint is still there');
 });
 
 test('IPv6 can be switched off completely', async () => {

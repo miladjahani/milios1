@@ -21,6 +21,13 @@ import {
 } from '../config/defaults.js';
 import { findEchConfig } from '../core/ech.js';
 import {
+  SS_METHOD_VARIANTS,
+  deriveSs2022Psk,
+  isSsMethod,
+  resolveSsSecret,
+  ssMethodMeta
+} from '../core/sscrypto.js';
+import {
   createMiliNodeNamer,
   encodeBase64Utf8,
   finalizeMiliSubscriptionLinks,
@@ -189,6 +196,27 @@ function interleaveProtocols(groups = {}) {
   return out;
 }
 
+// Panel-owned CFnew settings. The administrator's value always wins over the
+// per-user config snapshot, so changing a setting or applying a scan is visible
+// in every subscription on its next request. Protocol choices and per-user
+// limits stay owned by the user record.
+export const PANEL_OWNED_CONFIG_KEYS = [
+  'yx', 'yxURL', 'epi', 'epd', 'egi', 'ena', 'yxby', 'locationNodeCount',
+  'ssmethod', 'sspass', 'tp', 's', 'scu', 'wk', 'ae', 'jk',
+  'ipv4', 'ipv6', 'ispMobile', 'ispUnicom', 'ispTelecom',
+  'ports', 'dkby', 'patt', 'frag', 'fragmentPreset',
+  'fragmentLength', 'fragmentInterval', 'fragmentPackets', 'ipRotation'
+];
+
+export function applyPanelOwnedConfig(userConfig = {}, panelConfig = {}) {
+  const merged = { ...(userConfig && typeof userConfig === 'object' ? userConfig : {}) };
+  if (!panelConfig || typeof panelConfig !== 'object') return merged;
+  for (const key of PANEL_OWNED_CONFIG_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(panelConfig, key)) merged[key] = panelConfig[key];
+  }
+  return merged;
+}
+
 function isIpv6Literal(host) {
   return String(host || '').includes(':');
 }
@@ -232,6 +260,18 @@ export function getStaticCfAddresses(cfg = {}) {
 // ساخت نودهای چندلوکیشن: آدرس = آی‌پی ثابت CF، و پروکسی کشور از طریق ?s= در مسیر ws
 const LOCATION_PROXY_SCHEMES = ['socks5://', 'socks://', 'http://', 'https://'];
 
+// انتخاب چرخشی کشورها برای حالت MULTI — هر ساعت یک برش تازه از رجیستری زنده
+// کشورها، تا همهٔ کشورها در طول زمان پوشش داده شوند.
+export function pickMultiLocationCountries(countryCodes = [], count = 8) {
+  const codes = (Array.isArray(countryCodes) ? countryCodes : [])
+    .map(code => String(code || '').trim().toUpperCase())
+    .filter(code => /^[A-Z]{2}$/.test(code));
+  if (!codes.length) return [];
+  const size = Math.max(1, Math.min(count, codes.length));
+  const shift = Math.floor(Date.now() / (60 * 60 * 1000)) % codes.length;
+  return Array.from({ length: size }, (_value, index) => codes[(shift + index) % codes.length]);
+}
+
 export function buildLocationSourceList(proxyPool = [], cfg = {}, fallbackHost = '') {
   const usable = (Array.isArray(proxyPool) ? proxyPool : []).filter(item => {
     const p = String(item?.proxy || '').trim();
@@ -261,13 +301,16 @@ export function buildLocationSourceList(proxyPool = [], cfg = {}, fallbackHost =
   const stride = Math.max(1, Math.floor(addressPool.length / wanted));
   const out = [];
   for (let i = 0; i < wanted; i++) {
+    // هر کشور یک بار پیش از تکرار، تا MULTI واقعاً چند لوکیشن باشد
     const code = countryCodes[(bucket + i) % countryCodes.length];
     const group = byCountry.get(code) || usable;
     const picked = group[(bucket + i) % group.length];
+    const meta = COUNTRY_PROXY_SOURCES[code] || {};
     out.push({
       ip: addressPool[(i * stride) % addressPool.length],
-      isp: `Loc-${picked.country || 'CF'}`,
-      country: picked.country || '',
+      isp: code ? `Loc-${code}` : 'Loc',
+      country: /^[A-Z]{2}$/.test(code) ? code : '',
+      locationName: code ? `${meta.flag ? meta.flag + ' ' : ''}${meta.name || code}` : '',
       proxy: picked.proxy
     });
   }
@@ -300,8 +343,21 @@ export function parseCustomPreferredString(yxStr = '') {
     .map(x => x.trim())
     .filter(Boolean);
   for (const item of items) {
-    // خطوط پروکسی (socks5://...) آدرس نود نیستند و نباید در لیست آی‌پی ترجیحی بیایند
-    if (item.includes('://')) continue;
+    // خطوط پروکسی (socks5://...) آدرس نود نیستند؛ به نودهای زنجیره‌ای چندلوکیشن
+    // تبدیل می‌شوند تا خروجی از کشور همان پروکسی انجام شود.
+    const schemeMatch = item.match(/^([a-z0-9+.-]+):\/\//i);
+    if (schemeMatch) {
+      if (!LOCATION_PROXY_SCHEMES.includes(`${schemeMatch[1].toLowerCase()}://`)) continue;
+      const hashIdx = item.indexOf('#');
+      const proxy = (hashIdx > -1 ? item.slice(0, hashIdx) : item).trim();
+      const rawName = hashIdx > -1 ? item.slice(hashIdx + 1).trim() : '';
+      const countryMatch = rawName.match(/\b([A-Za-z]{2})\b/);
+      const country = countryMatch && COUNTRY_PROXY_SOURCES[countryMatch[1].toUpperCase()]
+        ? countryMatch[1].toUpperCase()
+        : '';
+      proxyList.push({ proxy, name: rawName || proxy, country });
+      continue;
+    }
     let nodeName = '';
     let addrPart = item;
     if (item.includes('#')) {
@@ -536,12 +592,14 @@ export function rotateIpListByTimeBucket(list, rotationSetting = 'off') {
   return [...list.slice(shift), ...list.slice(0, shift)];
 }
 
-export function buildShadowsocksLinks(list, userUuid, workerHost, cfg, namer) {
+export function buildShadowsocksLinks(list, userUuid, workerHost, cfg, namer, credentials = {}) {
   const links = [];
   const sspass = (cfg.sspass && String(cfg.sspass).trim()) || userUuid;
-  // این ورکر هدر Shadowsocks را به‌صورت متنی می‌خواند (parseShadowsocksHeader)، بنابراین cipher باید none باشد
-  const cipher = 'none';
-  const userinfo = encodeSip002UserInfo(`${cipher}:${sspass}`);
+  const pskByMethod = credentials.pskByMethod || {};
+  // The Worker speaks the real Shadowsocks AEAD protocols now, so every
+  // subscription carries several ciphers instead of the old plaintext `none`.
+  const requested = String(cfg.ssmethod || '').toLowerCase();
+  const methods = requested && isSsMethod(requested) ? [requested] : SS_METHOD_VARIANTS;
 
   for (let idx = 0; idx < list.length; idx++) {
     const item = list[idx];
@@ -552,18 +610,28 @@ export function buildShadowsocksLinks(list, userUuid, workerHost, cfg, namer) {
     const nodeName = namer(item);
     const itemPath = buildNodePath('ss', cfg, '', item);
     const pluginOpts = `v2ray-plugin;mode=websocket;host=${workerHost};path=${itemPath};tls`;
+    // A short endpoint list still exposes every cipher: the first node fans out
+    // into all variants, longer lists cycle one cipher per node to stay compact.
+    const nodeMethods = list.length < methods.length && idx === 0
+      ? methods
+      : [methods[idx % methods.length]];
 
-    // دو قالب استاندارد شادوساکس برای سازگاری با کلاینت‌های مختلف:
-    // ۱) SIP002 (userinfo جدا)  ۲) قالب قدیمی base64 کامل (method:pass@host:port)
-    if (idx % 2 === 0) {
-      links.push(
-        `ss://${userinfo}@${safeAddr}:${port}/?plugin=${encodeURIComponent(pluginOpts)}#${encodeURIComponent(nodeName)}`
-      );
-    } else {
-      const legacy = encodeBase64Utf8(`${cipher}:${sspass}@${safeAddr}:${port}`);
-      links.push(
-        `ss://${legacy}?plugin=${encodeURIComponent(pluginOpts)}#${encodeURIComponent(nodeName)}`
-      );
+    for (const cipher of nodeMethods) {
+      const secret = ssMethodMeta(cipher)?.family === '2022' ? pskByMethod[cipher] : sspass;
+      if (!secret) continue;
+      const userinfo = encodeSip002UserInfo(`${cipher}:${secret}`);
+      // دو قالب استاندارد شادوساکس برای سازگاری با کلاینت‌های مختلف:
+      // ۱) SIP002 (userinfo جدا)  ۲) قالب قدیمی base64 کامل (method:pass@host:port)
+      if (links.length % 2 === 0) {
+        links.push(
+          `ss://${userinfo}@${safeAddr}:${port}/?plugin=${encodeURIComponent(pluginOpts)}#${encodeURIComponent(nodeName)}`
+        );
+      } else {
+        const legacy = encodeBase64Utf8(`${cipher}:${secret}@${safeAddr}:${port}`);
+        links.push(
+          `ss://${legacy}?plugin=${encodeURIComponent(pluginOpts)}#${encodeURIComponent(nodeName)}`
+        );
+      }
     }
   }
   return links;
@@ -682,7 +750,7 @@ function buildXhttpLinks(list, userUuid, workerHost, cfg, namer) {
 // تولید لیست کامل لینک‌های نود برای کاربر با نام‌گذاری دقیق number+miliconfig و رعایت سقف تعداد نود در ساب
 export async function generateUserNodesList(userOrConfig, workerHost, queryOverrides = {}) {
   const rawCfg = userOrConfig?.config ? userOrConfig.config : (userOrConfig || {});
-  const cfg = normalizeEffectiveConfig(rawCfg);
+  const cfg = normalizeEffectiveConfig(applyPanelOwnedConfig(rawCfg, queryOverrides.panelConfig));
   // ECH Finder result resolved for this request (see handleSubscriptionResponse).
   if (queryOverrides.echConfigBase64) cfg.echConfigBase64 = String(queryOverrides.echConfigBase64);
   const userUuid = String(userOrConfig?.uuid || queryOverrides.uuid || '351c9981-04b6-4103-aa4b-864aa9c91469').toLowerCase();
@@ -694,6 +762,17 @@ export async function generateUserNodesList(userOrConfig, workerHost, queryOverr
   const etEnabled = protoFilter ? protoFilter === 'trojan' : isEnabledValue(cfg.et, false);
   const exEnabled = protoFilter ? protoFilter === 'xhttp' : isEnabledValue(cfg.ex, false);
   const esEnabled = protoFilter ? (protoFilter === 'ss' || protoFilter === 'shadowsocks') : isEnabledValue(cfg.es, false);
+
+  // 2022 ciphers need a per-user PSK derived from a server secret; 2017 ciphers
+  // keep using the user's Shadowsocks password, exactly like before.
+  const ssCredentials = { pskByMethod: {} };
+  if (esEnabled) {
+    const ssSecret = queryOverrides.ssSecret || await resolveSsSecret(queryOverrides.env || {});
+    for (const method of SS_METHOD_VARIANTS) {
+      if (ssMethodMeta(method)?.family !== '2022') continue;
+      ssCredentials.pskByMethod[method] = await deriveSs2022Psk(ssSecret, userUuid, method);
+    }
+  }
 
   const namer = createMiliNodeNamer(BRAND_NAME);
   // هر پروتکل در گروه جداگانه ساخته می‌شود تا در پایان با چیدمان چرخشی
@@ -716,7 +795,7 @@ export async function generateUserNodesList(userOrConfig, workerHost, queryOverr
     if (evEnabled) add('vless', buildVlessLinks(safeList, userUuid, workerHost, cfg, namer, wkOverride));
     if (etEnabled) add('trojan', buildTrojanLinks(safeList, userUuid, workerHost, cfg, namer, wkOverride));
     if (exEnabled) add('xhttp', buildXhttpLinks(safeList, userUuid, workerHost, cfg, namer));
-    if (esEnabled) add('ss', buildShadowsocksLinks(safeList, userUuid, workerHost, cfg, namer));
+    if (esEnabled) add('ss', buildShadowsocksLinks(safeList, userUuid, workerHost, cfg, namer, ssCredentials));
   }
 
   function hasIpv6Node() {
@@ -735,18 +814,19 @@ export async function generateUserNodesList(userOrConfig, workerHost, queryOverr
   let countryMode = false;
   const countryFilter = (queryOverrides.country || '').trim().toUpperCase();
   if (countryFilter) {
+    // MULTI uses the live country registry instead of a fixed short list, and
+    // rotates a slice per hour so every country is reachable without blowing
+    // past the Worker subrequest budget.
     const wantedCountries = countryFilter === 'MULTI' || countryFilter === 'ALL'
-      ? ['DE', 'NL', 'US', 'GB', 'TR', 'AE', 'CA', 'SE']
+      ? pickMultiLocationCountries(Object.keys(COUNTRY_PROXY_SOURCES), 8)
       : (COUNTRY_PROXY_SOURCES[countryFilter] ? [countryFilter] : []);
-    const proxyPool = [];
-    for (const code of wantedCountries) {
-      const urls = (COUNTRY_PROXY_SOURCES[code]?.urls || []).join(',');
-      if (!urls) continue;
+    const perCountry = await Promise.all(wantedCountries.map(async code => {
+      const urls = (COUNTRY_PROXY_SOURCES[code]?.urls || []).slice(0, 2).join(',');
+      if (!urls) return [];
       const found = await fetchPreferredFromUrls(urls);
-      for (const item of found) {
-        if (item.proxy) proxyPool.push({ proxy: item.proxy, country: code });
-      }
-    }
+      return found.filter(item => item.proxy).map(item => ({ proxy: item.proxy, country: code }));
+    }));
+    const proxyPool = perCountry.flat();
     const locationNodes = buildLocationSourceList(proxyPool, cfg, workerHost);
     if (locationNodes.length > 0) {
       appendFromSource(locationNodes);
@@ -774,17 +854,20 @@ export async function generateUserNodesList(userOrConfig, workerHost, queryOverr
     if (!endpoint || endpoint.enabled === false) continue;
     const host = normalizeNodeHost(endpoint.host);
     if (!host) continue;
-    const source = [{
+    // The catalog is authoritative, but the IPv4/IPv6 switches still apply to
+    // it: otherwise `ipv6=no` would leave IPv6 endpoint nodes in the file.
+    const source = filterAddressFamily([{
       ip: host,
       port: Number(endpoint.port) || 443,
       isp: String(endpoint.name || host),
       country: String(endpoint.country || '')
-    }];
+    }], cfg);
+    if (!source.length) continue;
     const protocol = String(endpoint.protocol || 'vless').toLowerCase();
     if (protocol === 'vless' && evEnabled) protoGroups.vless.push(...buildVlessLinks(source, userUuid, workerHost, cfg, namer, wkOverride));
     if (protocol === 'trojan' && etEnabled) protoGroups.trojan.push(...buildTrojanLinks(source, userUuid, workerHost, cfg, namer, wkOverride));
     if (protocol === 'xhttp' && exEnabled) protoGroups.xhttp.push(...buildXhttpLinks(source, userUuid, workerHost, cfg, namer));
-    if ((protocol === 'shadowsocks' || protocol === 'ss') && esEnabled) protoGroups.ss.push(...buildShadowsocksLinks(source, userUuid, workerHost, cfg, namer));
+    if ((protocol === 'shadowsocks' || protocol === 'ss') && esEnabled) protoGroups.ss.push(...buildShadowsocksLinks(source, userUuid, workerHost, cfg, namer, ssCredentials));
   }
 
   const disablePreferred = cfg.yxby === 'yes' || nodeScope === 'origin';
@@ -795,10 +878,13 @@ export async function generateUserNodesList(userOrConfig, workerHost, queryOverr
   }
 
   const { ipList: customIps, domainList: customDomains, proxyList: customProxies } = parseCustomPreferredString(cfg.yx);
-  const hasCustomPreferred = customIps.length > 0 || customDomains.length > 0;
+  // Applied proxy lists are just as intentional as applied address lists: once
+  // yx carries anything, generation follows it instead of the built-in defaults.
+  const hasCustomPreferred = customIps.length > 0 || customDomains.length > 0 || customProxies.length > 0;
 
-  // ورودی‌های پروکسی (پورت غیر CF) به نودهای زنجیره‌ای تبدیل می‌شوند تا پینگ بدهند
-  if (!countryMode && customProxies.length > 0) {
+  // ورودی‌های پروکسی (پورت غیر CF و خطوط scheme://) به نودهای زنجیره‌ای تبدیل
+  // می‌شوند تا پینگ بدهند و از کشور همان پروکسی خارج شوند.
+  if (!disablePreferred && !countryMode && customProxies.length > 0) {
     appendFromSource(buildLocationSourceList(customProxies, cfg, workerHost));
   }
 
@@ -900,7 +986,7 @@ export function detectTargetFromRequest(request, url) {
   return 'base64';
 }
 
-export async function handleSubscriptionResponse(request, userOrConfig, url = null, catalogEndpoints = []) {
+export async function handleSubscriptionResponse(request, userOrConfig, url = null, catalogEndpoints = [], env = {}, panelConfig = null) {
   if (!url) url = new URL(request.url);
   const workerHost = url.hostname;
   const rawCfg = userOrConfig?.config ? userOrConfig.config : (userOrConfig || {});
@@ -945,7 +1031,9 @@ export async function handleSubscriptionResponse(request, userOrConfig, url = nu
     scope: url.searchParams.get('scope') || userOrConfig?.nodeScope || 'all',
     limit: url.searchParams.get('limit') !== null ? url.searchParams.get('limit') : undefined,
     catalogEndpoints: Array.isArray(catalogEndpoints) ? catalogEndpoints : [],
-    echConfigBase64: cfg.echConfigBase64 || ''
+    echConfigBase64: cfg.echConfigBase64 || '',
+    env,
+    panelConfig
   };
 
   const finalLinks = await generateUserNodesList(userOrConfig, workerHost, queryOverrides);

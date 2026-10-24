@@ -41,7 +41,12 @@ test('sources API exposes the catalog and auto settings to an admin', async () =
   assert.equal(data.catalog.length, SOURCE_CATALOG.length);
   assert.equal(data.auto.enabled, false);
   assert.equal(data.categories.find(category => category.id === 'cf-ip').appliesToYx, true);
-  assert.equal(data.categories.find(category => category.id === 'socks5').appliesToYx, false);
+  assert.equal(data.categories.find(category => category.id === 'cf-ip').feeds, 'address');
+  // Proxy lists are not scan-only anymore: they become location nodes.
+  const socks = data.categories.find(category => category.id === 'socks5');
+  assert.equal(socks.appliesToYx, true);
+  assert.equal(socks.feeds, 'proxy');
+  assert.equal(data.categories.find(category => category.id === 'ip-range').appliesToYx, false);
 
   const saved = await worker.fetch(
     jsonRequest('/api/v1/sources/auto', { method: 'PUT', cookie, body: { enabled: true, intervalMinutes: 120, limit: 10, categories: ['cf-ip'] } }),
@@ -117,6 +122,36 @@ test('address lines cover plain IPs, host:port, IPv6 and URLs', () => {
   assert.equal(parseAddressLines('', {}).length, 0);
 });
 
+test('proxy lists keep their scheme and never become node addresses', () => {
+  const proxies = parseAddressLines([
+    'socks5://1.2.3.4:1080',
+    '5.6.7.8:3128',
+    'https://proxy.example.com:8443',
+    'vless://11111111-2222-4333-8444-555555555555@1.1.1.1:443'
+  ].join('\n'), { kind: 'proxy', scheme: 'socks5', limit: 10 });
+  assert.equal(proxies.length, 3);
+  assert.equal(proxies[0].proxy, 'socks5://1.2.3.4:1080');
+  assert.equal(proxies[1].proxy, 'socks5://5.6.7.8:3128');
+  assert.equal(proxies[2].proxy, 'https://proxy.example.com:8443');
+  assert.equal(proxies[2].port, 8443);
+});
+
+test('applying a proxy source writes chained location entries, not fake addresses', async () => {
+  const env = { DB: createD1() };
+  const applied = await applySourcesToPreferred(env, [
+    { host: '10.1.1.1', port: 1080, proxy: 'socks5://10.1.1.1:1080', country: 'DE', sourceId: 'cf-vip-1' },
+    { host: '10.2.2.2', port: 1080, proxy: 'socks5://10.2.2.2:1080', country: 'NL', sourceId: 'cf-vip-2' }
+  ], { replace: true });
+  assert.equal(applied.added.length, 2);
+  assert.match(applied.yx, /socks5:\/\/10\.1\.1\.1:1080#DE-cf-vip-1/);
+  assert.match(applied.yx, /socks5:\/\/10\.2\.2\.2:1080#NL-cf-vip-2/);
+  // Applying twice changes nothing.
+  const again = await applySourcesToPreferred(env, [
+    { host: '10.1.1.1', port: 1080, proxy: 'socks5://10.1.1.1:1080', country: 'DE', sourceId: 'cf-vip-1' }
+  ], {});
+  assert.equal(again.added.length, 0);
+});
+
 test('automatic sync config is clamped and only accepts known categories', () => {
   const auto = normalizeSourcesAuto({
     enabled: 'yes',
@@ -143,7 +178,9 @@ test('applying sources merges into yx without duplicating or clobbering', async 
     { host: '104.16.0.9', family: 'ipv4', sourceId: 'cf-ip-1' },
     { host: '2606:4700::6810:9', family: 'ipv6', sourceId: 'cf-ip-2' }
   ];
-  const first = await applySourcesToPreferred(env, candidates, {});
+  // replace:true starts from a clean pool so the assertion is order-independent
+  // (the memory fallback config is shared between tests).
+  const first = await applySourcesToPreferred(env, candidates, { replace: true });
   assert.equal(first.added.length, 2);
   assert.match(first.yx, /104\.16\.0\.9#CF-cf-ip-1/);
   assert.match(first.yx, /2606:4700::6810:9#CF6-cf-ip-2/);

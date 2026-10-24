@@ -513,6 +513,12 @@ const ADMIN_JS = `
     { id:'capabilities', group:'system', icon:'matrix' }
   ];
   var GROUPS = { main:{fa:'مرکز کنترل',en:'Control center'}, control:{fa:'شبکه',en:'Network'}, system:{fa:'سیستم',en:'System'} };
+  // Coherent bundles of CFnew settings behind one button.
+  var QUICK_SETUPS = [
+    { id:'iran-fast', title:'ایران — آماده به کار', hint:'VLESS + Shadowsocks، فرگمنت ضد-DPI، IPv4 و IPv6', values:{ ev:'yes', et:'no', ex:'no', es:'yes', frag:'yes', fragmentPreset:'mci', ipv4:'yes', ipv6:'yes', epi:'yes', epd:'yes', egi:'yes', yxby:'no' } },
+    { id:'multi-location', title:'چند لوکیشن', hint:'نودهای کشوری روی آی‌پی ثابت CF با خروجی پروکسی زنده', values:{ ev:'yes', es:'yes', epi:'yes', epd:'yes', egi:'yes', yxby:'no', locationNodeCount:8, frag:'yes', fragmentPreset:'mci' } },
+    { id:'light', title:'سبک برای شبکهٔ ضعیف', hint:'فقط VLESS، فقط IPv4، بدون فرگمنت', values:{ ev:'yes', et:'no', ex:'no', es:'no', frag:'no', ipv4:'yes', ipv6:'no' } }
+  ];
 
   function t(key){ var d = I18N[S.lang] || I18N.en; return d[key] || key; }
   function esc(v){ return String(v == null ? '' : v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
@@ -808,7 +814,9 @@ const ADMIN_JS = `
               if (!c) return '';
               return esc(level + ': ' + (c.ok ? 'ok' : 'fail') + (c.detail ? ' — ' + c.detail : ''));
             }).filter(Boolean).join('<br>') + '</div></td></tr>';
-        }).join('') + '</tbody></table></div></section>';
+        }).join('') + '</tbody></table></div>' +
+        '<div class="form-row" style="margin-top:10px"><button class="btn primary" data-act="scan-apply">Apply reachable results to nodes</button>' +
+        '<span class="faint">Addresses join the preferred pool; proxies become chained location nodes.</span></div></section>';
     }
     return html;
   }
@@ -847,22 +855,25 @@ const ADMIN_JS = `
     var check = S.sourcesCheck || s.lastCheck || null;
     var categories = s.categories || [];
     var html = '<section class="card"><h2>CFnew sources (live)</h2>' +
-      '<div class="card-sub">Every list is read live from its origin, with no server-side cache. <b>Check</b> probes reachability, <b>Apply</b> writes the returned addresses into the preferred-node pool (yx), and the automation job repeats the same apply on a schedule.</div>' +
-      '<div class="table-wrap"><table><thead><tr><th>Category</th><th>Lists</th><th>Feeds yx</th><th>Status</th><th></th></tr></thead><tbody>' +
+      '<div class="card-sub">Every list is read live from its origin, with no server-side cache. <b>Check</b> probes reachability and <b>Apply to nodes</b> turns the result into real nodes: addresses become preferred nodes, proxy lines become chained location nodes on a static Cloudflare IP. The automation job repeats the same apply on a schedule.</div>' +
+      '<div class="table-wrap"><table><thead><tr><th>Category</th><th>Lists</th><th>Becomes</th><th>Status</th><th></th></tr></thead><tbody>' +
       (categories.length ? categories.map(function(c){
         var row = check && check.results ? check.results.filter(function(x){ return x.category === c.id; })[0] : null;
         var status = row
           ? badge(row.ok ? 'reachable' : 'failed', row.ok ? 'ok' : 'err') + '<div class="faint">' + esc(row.lines || 0) + ' lines · ' + esc(row.latencyMs || 0) + ' ms' + (row.error ? ' · ' + esc(row.error) : '') + '</div>'
           : '<span class="faint">not checked</span>';
+        var feeds = !c.appliesToYx
+          ? badge('scan only', 'info')
+          : badge(c.feeds === 'proxy' ? 'location nodes' : 'address nodes', 'ok');
         return '<tr><td><strong>' + esc(c.label) + '</strong><div class="faint mono">' + esc(c.id) + '</div></td>' +
           '<td class="mono">' + esc(c.count) + '</td>' +
-          '<td>' + (c.appliesToYx ? badge('yes', 'ok') : badge('scanner only', 'info')) + '</td>' +
+          '<td>' + feeds + '</td>' +
           '<td>' + status + '</td>' +
           '<td class="nowrap"><button class="btn sm" data-act="sources-check" data-cat="' + esc(c.id) + '">' + esc(t('check')) + '</button> ' +
-          (c.appliesToYx ? '<button class="btn sm primary" data-act="sources-apply" data-cat="' + esc(c.id) + '">Apply to yx</button>' : '') + '</td></tr>';
+          (c.appliesToYx ? '<button class="btn sm primary" data-act="sources-apply" data-cat="' + esc(c.id) + '">Apply to nodes</button>' : '') + '</td></tr>';
       }).join('') : '<tr><td colspan="5">' + emptyState() + '</td></tr>') +
       '</tbody></table></div></section>';
-    html += '<section class="card"><h2>Automatic CFnew sync</h2><div class="card-sub">The <span class="mono">sources-sync</span> job applies the selected categories into yx on the Cron Trigger. Existing manual entries are kept unless “replace” is enabled.</div>' +
+    html += '<section class="card"><h2>Automatic CFnew sync</h2><div class="card-sub">The <span class="mono">sources-sync</span> job applies the selected categories into the node pool on the Cron Trigger. Address lists become nodes; proxy lists become chained location nodes. Existing manual entries are kept unless “replace” is enabled.</div>' +
       '<div class="form-row"><label class="check"><input type="checkbox" id="srcAutoEnabled"' + (auto.enabled ? ' checked' : '') + '> Enabled</label>' +
       '<label class="check"><input type="checkbox" id="srcAutoReplace"' + (auto.replace ? ' checked' : '') + '> Replace yx</label>' +
       '<div class="field" style="max-width:150px"><label for="srcAutoInterval">Interval (min)</label><input id="srcAutoInterval" type="number" min="15" max="10080" value="' + esc(auto.intervalMinutes || 360) + '"></div>' +
@@ -943,6 +954,8 @@ const ADMIN_JS = `
       input = '<input type="number" name="' + field.key + '" id="' + id + '" value="' + esc(value) + '" min="' + (field.min != null ? field.min : '') + '" max="' + (field.max != null ? field.max : '') + '">';
     } else if (field.type === 'ports') {
       input = '<input name="' + field.key + '" id="' + id + '" value="' + esc(value) + '" placeholder="443,2053,8443">';
+    } else if (field.type === 'textarea') {
+      input = '<textarea name="' + field.key + '" id="' + id + '" rows="4" style="min-height:92px">' + esc(value) + '</textarea>';
     } else {
       input = '<input type="' + (field.type === 'url' ? 'url' : 'text') + '" name="' + field.key + '" id="' + id + '" value="' + esc(value) + '"' + (field.maxLength ? ' maxlength="' + field.maxLength + '"' : '') + '>';
     }
@@ -954,16 +967,25 @@ const ADMIN_JS = `
     var schema = S.settings.schema || [];
     var values = S.settings.values || {};
     var conflicts = S.settings.conflicts || [];
-    var tabs = ['general','security','network','proxy','subscriptions','appearance','cloudflare'];
+    var tabs = ['general','security','network','proxy','cfnew','subscriptions','appearance','cloudflare'];
     var html = pageHead(t('settings'), 'Every setting is validated server-side. Conflicts are reported before saving.',
       '<button class="btn danger" data-act="settings-reset">' + esc(t('resetSettings')) + '</button>');
+    // Normal users should not have to understand every CFnew field: one click
+    // sets a coherent group of values that changes the generated nodes.
+    html += '<section class="card"><h2>راه‌اندازی سریع</h2><div class="card-sub">یک ترکیب آماده را انتخاب کنید؛ همان لحظه روی نودهای ساب‌لینک اعمال می‌شود. تنظیمات دقیق در تب‌های پایین باقی می‌ماند.</div>' +
+      '<div class="form-row">' + QUICK_SETUPS.map(function(preset){
+        return '<button class="btn" data-act="quick-setup" data-preset="' + esc(preset.id) + '" title="' + esc(preset.hint) + '">' + esc(preset.title) + '</button>';
+      }).join('') + '</div>' +
+      '<div class="form-row" style="margin-top:8px"><button class="btn primary" data-act="quick-proxies">افزودن پروکسی‌های زنده به نودها</button>' +
+      '<span class="faint">پروکسی‌های کشوری و عمومی همین حالا خوانده و به نودهای چندلوکیشن تبدیل می‌شوند.</span></div>' +
+      '<div class="section-note" style="margin-top:8px">' + QUICK_SETUPS.map(function(preset){ return esc(preset.title + ': ' + preset.hint); }).join(' · ') + '</div></section>';
     if (conflicts.length) {
       html += conflicts.map(function(c){
         return '<div class="alert ' + (c.severity === 'error' ? 'err' : 'warn') + '"><div><b>' + esc(c.code) + '</b>' + esc(c.message) + '</div></div>';
       }).join('');
     }
     html += '<div class="tabs">' + tabs.map(function(tab){
-      var label = tab === 'general' ? t('settingsGeneral') : tab === 'security' ? t('settingsSecurity') : tab === 'network' ? t('settingsNetwork') : tab;
+      var label = tab === 'general' ? t('settingsGeneral') : tab === 'security' ? t('settingsSecurity') : tab === 'network' ? t('settingsNetwork') : tab === 'cfnew' ? 'ورودی‌های CFnew' : tab;
       return '<button type="button" data-act="settings-tab" data-tab="' + tab + '" class="' + (S.settingsTab === tab ? 'active' : '') + '">' + esc(label) + '</button>';
     }).join('') + '</div>';
     var fields = schema.filter(function(f){ return f.section === S.settingsTab && f.key !== 'cfAccountId'; });
@@ -1282,6 +1304,20 @@ const ADMIN_JS = `
       if (!confirm(t('confirmReset'))) return;
       api('/settings/reset', { method:'POST', body:{} }).then(function(){ toast(t('saved'),'ok'); return loadSettings(); }).then(render).catch(function(err){ toast(err.message,'err'); }); return;
     }
+    if (act === 'quick-setup') {
+      var presetId = el.getAttribute('data-preset');
+      var preset = null;
+      QUICK_SETUPS.forEach(function(p){ if (p.id === presetId) preset = p; });
+      if (!preset) return;
+      toast(t('loading'), 'ok');
+      api('/settings', { method:'PUT', body:{ settings: preset.values } }).then(function(d){
+        S.settings = d;
+        toast(t('saved'), 'ok');
+        (d.warnings || []).forEach(function(w){ toast(w.message, 'err'); });
+        return loadSettings();
+      }).then(render).catch(function(err){ toast(err.message, 'err'); });
+      return;
+    }
     if (act === 'sources-check') {
       var cat = el.getAttribute('data-cat');
       toast(t('loading'), 'ok');
@@ -1297,7 +1333,7 @@ const ADMIN_JS = `
       toast(t('loading'), 'ok');
       api('/sources/apply', { method:'POST', body:{ categories:[applyCat], limit: 24 } }).then(function(d){
         var added = d.applied ? d.applied.added.length : 0;
-        toast(added + ' address(es) added to yx from ' + d.sources.filter(function(x){ return x.ok; }).length + ' live list(s)', added ? 'ok' : 'err');
+        toast(added + ' node entr' + (added === 1 ? 'y' : 'ies') + ' added from ' + d.sources.filter(function(x){ return x.ok; }).length + ' live list(s)', added ? 'ok' : 'err');
         return loadSources();
       }).then(render).catch(function(err){ toast(err.message, 'err'); });
       return;
@@ -1323,6 +1359,29 @@ const ADMIN_JS = `
         S.sources = S.sources || {};
         S.sources.auto = d.auto;
         toast(t('saved'), 'ok');
+        render();
+      }).catch(function(err){ toast(err.message, 'err'); });
+      return;
+    }
+    if (act === 'quick-proxies') {
+      toast(t('loading'), 'ok');
+      api('/sources/apply', { method:'POST', body:{ categories:['cf-vip','socks5'], limit: 16 } }).then(function(d){
+        var added = d.applied ? d.applied.added.length : 0;
+        toast(added + ' live prox' + (added === 1 ? 'y' : 'ies') + ' applied as location nodes', added ? 'ok' : 'err');
+        return loadSources();
+      }).then(function(){ return loadSettings(); }).then(render).catch(function(err){ toast(err.message, 'err'); });
+      return;
+    }
+    if (act === 'scan-apply') {
+      var scan = S.scanResult;
+      if (!scan || !scan.targets || !scan.targets.length) { toast('Run a scan first', 'err'); return; }
+      toast(t('loading'), 'ok');
+      api('/scanner/scan', { method:'POST', body:{ apply:true, targets: scan.targets.map(function(x){
+        return { host:x.host, port:x.port, levels:x.levels, country:x.country, proxy:x.proxy };
+      }) } }).then(function(d){
+        var added = d.applied ? d.applied.added.length : 0;
+        S.scanResult = d;
+        toast(added + ' scan result(s) applied to nodes', added ? 'ok' : 'err');
         render();
       }).catch(function(err){ toast(err.message, 'err'); });
       return;

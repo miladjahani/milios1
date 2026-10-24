@@ -420,7 +420,7 @@ export default {
             if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(Promise.all(tasks));
           }
           const catalogEndpoints = (await listEndpoints(env)).filter(item => item.enabled);
-          return await handleSubscriptionResponse(request, targetUser, url, catalogEndpoints);
+          return await handleSubscriptionResponse(request, targetUser, url, catalogEndpoints, env, globalCfg);
         }
 
         // 4e. User status page (admin path view, subscription token, or legacy user id)
@@ -463,7 +463,9 @@ export default {
           if (!userObj) return textResponse('User not found.\n', 404);
           const nodes = await generateUserNodesList(userObj, url.hostname, {
             limit: userObj.subNodeCount,
-            catalogEndpoints: await listEndpoints(env)
+            catalogEndpoints: await listEndpoints(env),
+            env,
+            panelConfig: globalCfg
           });
           return htmlResponse(renderUserStatusPageHtml(userObj, nodes, request.url));
         }
@@ -500,7 +502,9 @@ export default {
         if (matchedUser) {
           const nodes = await generateUserNodesList(matchedUser, url.hostname, {
             limit: matchedUser.subNodeCount,
-            catalogEndpoints: await listEndpoints(env)
+            catalogEndpoints: await listEndpoints(env),
+            env,
+            panelConfig: globalCfg
           });
           return htmlResponse(renderUserStatusPageHtml(matchedUser, nodes, request.url));
         }

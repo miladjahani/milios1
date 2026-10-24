@@ -75,6 +75,7 @@ const MODULE_ORDER = [
   'src/ui/icons.js',
   'src/db/d1.js',
   'src/db/v4.js',
+  'src/core/sscrypto.js',
   'src/core/automation.js',
   'src/subscription/converters.js',
   'src/subscription/generator.js',

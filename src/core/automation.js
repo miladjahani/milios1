@@ -75,10 +75,11 @@ export async function runAutomationJob(env, job, cfg, clientIp = 'cron') {
           concurrency: Math.min(4, Number(cfg.scannerConcurrency) || 4)
         });
         if (!collected.candidates.length) {
-          detail = `No usable address from ${entries.length} source(s); yx was left unchanged.`;
+          detail = `No usable entry from ${entries.length} source(s); the node pool was left unchanged.`;
         } else {
           const applied = await applySourcesToPreferred(env, collected.candidates, { replace: auto.replace });
-          detail = `Added ${applied.added.length} address(es) from ${collected.okCount}/${entries.length} live source(s); yx now holds ${applied.total}.`;
+          const proxies = collected.candidates.filter(item => item.proxy).length;
+          detail = `Added ${applied.added.length} node entr${applied.added.length === 1 ? 'y' : 'ies'} (${proxies} proxy → location node) from ${collected.okCount}/${entries.length} live source(s); yx now holds ${applied.total}.`;
         }
       }
     } else {

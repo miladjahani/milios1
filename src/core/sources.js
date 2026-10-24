@@ -184,22 +184,43 @@ export async function probeSources(entries, options = {}) {
 }
 
 /**
- * Parse address lines (plain IPs, host:port, bracketed IPv6, URLs) into
- * preferred-node candidates.
+ * Parse list lines into preferred-node candidates.
+ * Address lists yield plain nodes; proxy lists also keep the full proxy URL so
+ * the generator can chain through the country egress instead of dropping them.
  */
 export function parseAddressLines(text, options = {}) {
   const family = options.family === 'ipv4' || options.family === 'ipv6' ? options.family : 'any';
   const limit = clampNumber(options.limit, 1, MAX_CANDIDATES_PER_SOURCE, MAX_CANDIDATES_PER_SOURCE);
+  const kind = options.kind === 'proxy' ? 'proxy' : 'address';
+  const scheme = options.scheme || 'socks5';
+  const fallbackPort = kind === 'proxy' ? 1080 : 443;
   const out = [];
   const seen = new Set();
   for (const raw of String(text || '').split(/\r?\n/)) {
     let line = raw.trim();
     if (!line || line.startsWith('#') || line.startsWith('//')) continue;
-    line = line.split('#')[0].trim();
+    let proxy = '';
     if (line.includes('://')) {
-      try { line = new URL(line).hostname; } catch (_e) { continue; }
+      let parsed;
+      try { parsed = new URL(line.split('#')[0].trim()); } catch (_e) { continue; }
+      const proto = parsed.protocol.replace(/:$/, '').toLowerCase();
+      if (kind === 'proxy' && ['socks5', 'socks', 'http', 'https'].includes(proto)) {
+        proxy = line.split('#')[0].trim();
+      } else if (kind === 'proxy' && !['socks5', 'socks', 'http', 'https'].includes(proto)) {
+        // vless://, ss:// and friends are node links, not egress lists.
+        continue;
+      }
+      line = parsed.hostname;
+      if (parsed.port) line = `${line}:${parsed.port}`;
     }
-    if (line.includes('@')) line = line.split('@').pop();
+    line = line.split('#')[0].trim();
+    // user:pass@host:port lists keep their credentials in the egress URL.
+    let auth = '';
+    if (line.includes('@')) {
+      const parts = line.split('@');
+      auth = parts.slice(0, -1).join('@');
+      line = parts[parts.length - 1];
+    }
     line = line.split('/')[0].trim();
     if (!line) continue;
     const { address, port } = parseAddressAndPort(line);
@@ -210,13 +231,18 @@ export function parseAddressLines(text, options = {}) {
     if (family === 'ipv4' && !isV4) continue;
     if (family === 'ipv6' && !isV6) continue;
     if (!isValidIpAddress(host) && !isValidDomain(host)) continue;
-    const key = `${host}:${port || 443}`;
+    const resolvedPort = Number(port) || fallbackPort;
+    const proxyUrl = kind === 'proxy'
+      ? (proxy || `${scheme}://${auth ? `${auth}@` : ''}${isV6 ? `[${host}]` : host}:${resolvedPort}`)
+      : '';
+    const key = `${host}:${resolvedPort}${proxyUrl ? `|${proxyUrl}` : ''}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push({
       host,
-      port: Number(port) || 443,
-      family: isV6 ? 'ipv6' : (isV4 ? 'ipv4' : 'domain')
+      port: resolvedPort,
+      family: isV6 ? 'ipv6' : (isV4 ? 'ipv4' : 'domain'),
+      ...(proxyUrl ? { proxy: proxyUrl } : {})
     });
     if (out.length >= limit) break;
   }
@@ -234,7 +260,12 @@ export async function collectSourceAddresses(entries, options = {}) {
   const perEntry = await mapWithLimit(list, concurrency, async entry => {
     const live = await fetchSourceLive(entry, options);
     if (!live.ok) return { entry, ok: false, error: live.error || `HTTP ${live.status}`, items: [] };
-    const items = parseAddressLines(live.text, { family, limit: perSource });
+    const items = parseAddressLines(live.text, {
+      family,
+      limit: perSource,
+      kind: entry.feeds === 'proxy' || entry.kind === 'proxy' ? 'proxy' : 'address',
+      scheme: entry.scheme || 'socks5'
+    });
     return { entry, ok: true, lines: live.lines, items };
   });
 
@@ -242,10 +273,16 @@ export async function collectSourceAddresses(entries, options = {}) {
   const candidates = [];
   for (const result of perEntry) {
     for (const item of result.items) {
-      const key = `${item.host}:${item.port}`;
+      const key = item.proxy || `${item.host}:${item.port}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      candidates.push({ ...item, sourceId: result.entry.id, category: result.entry.category });
+      candidates.push({
+        ...item,
+        country: result.entry.country || '',
+        sourceId: result.entry.id,
+        category: result.entry.category,
+        feeds: result.entry.feeds || 'scanner'
+      });
       if (candidates.length >= limit) break;
     }
     if (candidates.length >= limit) break;
@@ -268,6 +305,13 @@ export async function collectSourceAddresses(entries, options = {}) {
 }
 
 function preferredEntry(item) {
+  // Proxy entries become chained location nodes: the static CF address stays the
+  // node address and the country egress rides along in the path.
+  if (item.proxy) {
+    const code = String(item.country || '').trim().toUpperCase();
+    const label = /^[A-Z]{2}$/.test(code) ? code : 'Loc';
+    return `${item.proxy}#${label}-${item.sourceId || 'scan'}`;
+  }
   const name = item.family === 'ipv6' ? `CF6-${item.sourceId || 'src'}` : `CF-${item.sourceId || 'src'}`;
   return `${item.host}#${name}`;
 }
@@ -289,7 +333,8 @@ export async function applySourcesToPreferred(env, candidates, options = {}) {
   const added = [];
   for (const item of list) {
     const entry = preferredEntry(item);
-    const key = item.host.toLowerCase();
+    // Proxies share hosts across ports, so the full egress URL is the identity.
+    const key = (item.proxy ? item.proxy : item.host).toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
     added.push(entry);

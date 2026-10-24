@@ -799,7 +799,10 @@ async function handleScanner(request, env, seg, method, cfg) {
       host: normalizeNodeHost(item.host),
       port: parseInt(item.port, 10) || 443,
       levels: Array.isArray(item.levels) ? item.levels : body.levels,
-      endpointId: item.endpointId
+      endpointId: item.endpointId,
+      country: String(item.country || '').trim().toUpperCase().slice(0, 2),
+      // A scanned proxy keeps its scheme so it can be applied as an egress node.
+      proxy: /^(socks5|socks|http|https):\/\//i.test(String(item.proxy || '')) ? String(item.proxy).trim() : ''
     }));
     const result = await scanTargets(targets, {
       concurrency: Math.min(8, Math.max(1, Number(cfg.scannerConcurrency) || 4)),
@@ -810,8 +813,39 @@ async function handleScanner(request, env, seg, method, cfg) {
       const check = result.results[i];
       if (target.endpointId && check) await recordEndpointHealth(env, target.endpointId, check);
     }
+    // Scans are not read-only: passing `apply` turns every reachable target into
+    // a real node (address entries, or chained location nodes for proxies).
+    let applied = null;
+    if (body.apply === true) {
+      const candidates = [];
+      for (let i = 0; i < targets.length; i++) {
+        const target = targets[i];
+        const check = result.results[i];
+        if (!check || !check.checks || !check.checks.tcp || !check.checks.tcp.ok) continue;
+        const host = target.host;
+        if (!host) continue;
+        const isV6 = host.includes(':');
+        candidates.push({
+          host,
+          port: target.port || 443,
+          family: isV6 ? 'ipv6' : 'ipv4',
+          country: target.country,
+          sourceId: 'scan',
+          ...(target.proxy ? { proxy: target.proxy } : {})
+        });
+      }
+      if (candidates.length) {
+        applied = await applySourcesToPreferred(env, candidates, { replace: body.replace === true });
+        await addAuditLog(
+          env,
+          'اعمال نتیجهٔ اسکن در نودها',
+          `${applied.added.length} entry(ies) added to yx`,
+          normalizeClientIp(request)
+        );
+      }
+    }
     await addAuditLog(env, 'اجرای اسکنر', `${targets.length} target(s)`, normalizeClientIp(request));
-    return json({ ok: true, ...result, targets });
+    return json({ ok: true, ...result, targets, applied });
   }
 
   if (seg[1] === 'history' && method === 'GET') {

@@ -33,7 +33,10 @@ the Worker's own probe results, or an explicitly labelled "not available" state.
 | Persistent user CRUD, quota, expiry, node scope, per-user UUID | Working | `src/api/v1.js`, `src/db/d1.js` |
 | Endpoint catalog (IPv4/IPv6/domain, protocol, transport, TLS, country, provider) | Working | `src/db/v4.js`, `src/api/v1.js` |
 | Endpoint checks with graded levels (syntax → DNS → TCP → TLS → HTTP → proxy) | Working, never claims more than it measured | `src/core/scanner.js`, `src/core/health.js` |
-| Live CFnew source registry: 198 public lists (country VIP, SOCKS5, HTTP, residential, CF IPs, IPv6 ranges) with per-category live checks and manual or scheduled application into `yx` | Working; every read is live and reports per-source status | `src/config/sources.js`, `src/core/sources.js` |
+| Live CFnew source registry: 198 public lists (country VIP, SOCKS5, HTTP, residential, CF IPs, IPv6 ranges) with per-category live checks and manual or scheduled application into the node pool | Working; every read is live and reports per-source status. Address lists become preferred nodes; proxy lists become chained location nodes on a static Cloudflare IP, so a proxy is never a scan-only result | `src/config/sources.js`, `src/core/sources.js`, `src/subscription/generator.js` |
+| Every CFnew input (yx, yxURL, epi/epd/egi/ena, sspass/ssmethod, s, isp lines, fragment values, ports, location count, …) editable from the panel | Working; validated server-side in the `CFnew inputs` settings tab | `src/config/schema.js`, `src/ui/adminHtml.js` |
+| Scanner results → nodes | Working; `apply: true` on a scan writes reachable addresses and proxies into the node pool | `src/api/v1.js` |
+| Real multi-location nodes | Working; `?country=XX` uses that country's live proxy sources, `MULTI` rotates a slice of the whole live country registry, one node per country, each tagged with its real `cc` | `src/subscription/generator.js` |
 | Configuration engine with validation, scoring, rejection reasons | Working | `src/core/engine.js` |
 | Subscription serializers (sing-box, Clash, URI, Surge, Loon, QuanX) | Working, tests per format | `src/subscription/converters.js` |
 | Per-user subscription tokens, rotation, revocation, quotas, expiry headers | Working | `src/api/v1.js`, `src/index.js` |
@@ -42,7 +45,7 @@ the Worker's own probe results, or an explicitly labelled "not available" state.
 | Automation jobs (validation, expiry, health refresh, quota checks) with run history | Working | `src/db/v4.js`, `src/api/v1.js` |
 | Cloudflare token storage (AES-GCM), permission listing, deployment status | Working HTTP client; real API verification required to mark connected | `src/api/v1.js`, `src/core/security.js` |
 | Light / dark / system themes, RTL + LTR, reduced motion | Working | `src/ui/adminHtml.js`, `src/ui/loginHtml.js` |
-| Tests | 64 tests, all passing (`npm test`) | `tests/` |
+| Tests | 100 tests, all passing (`npm test`) | `tests/` |
 
 ### Explicit non-claims
 

@@ -182,8 +182,8 @@ export const PROTOCOLS = {
     reality: false,
     ech: false,
     notes: {
-      en: 'The Worker reads the Shadowsocks header in plain mode only (cipher "none") and requires the v2ray-plugin WebSocket transport. AEAD ciphers are not implemented.',
-      fa: 'این ورکر هدر Shadowsocks را فقط به‌صورت متنی (cipher «none») می‌خواند و به ترنسپورت WebSocket با v2ray-plugin نیاز دارد. الگوریتم‌های AEAD پیاده‌سازی نشده‌اند.'
+      en: 'Real Shadowsocks AEAD is implemented (aes-128/256-gcm, chacha20-ietf-poly1305, 2022-blake3-aes-128/256-gcm) over the v2ray-plugin WebSocket transport. 2022 ciphers derive a per-user PSK from the panel secret.',
+      fa: 'شادوساکس واقعی AEAD پیاده‌سازی شده است (aes-128/256-gcm، chacha20-ietf-poly1305 و 2022-blake3-aes-128/256-gcm) روی ترنسپورت WebSocket با v2ray-plugin. الگوریتم‌های ۲۰۲۲ برای هر کاربر PSK اختصاصی می‌سازند.'
     }
   },
   xhttp: {

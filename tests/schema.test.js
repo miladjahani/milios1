@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  SETTINGS_BY_KEY,
   defaultSettings,
   detectConflicts,
   isPrivateHost,
@@ -41,11 +42,29 @@ test('conflict detection: no protocol, no address family, ECH without DoH', () =
   assert.ok(ech.some(c => c.code === 'ECH_WITHOUT_DOH'));
 });
 
-test('conflict detection warns about plaintext Shadowsocks and fake-IP in sing-box', () => {
-  const cfg = { ev: 'yes', es: 'yes', dnsMode: 'fakeip', subFormats: 'singbox,clash' };
+test('conflict detection warns about auto ciphers that cannot fit and fake-IP in sing-box', () => {
+  const cfg = { ev: 'yes', es: 'yes', ssmethod: 'auto', subNodeCount: 2, dnsMode: 'fakeip', subFormats: 'singbox,clash' };
   const conflicts = detectConflicts(cfg);
-  assert.ok(conflicts.some(c => c.code === 'SHADOWSOCKS_PLAIN' && c.severity === 'warning'));
+  assert.ok(conflicts.some(c => c.code === 'SS_FEW_NODES' && c.severity === 'warning'));
   assert.ok(conflicts.some(c => c.code === 'FAKEIP_SINGBOX' && c.severity === 'warning'));
+  const singleCipher = detectConflicts({ ...cfg, ssmethod: 'aes-256-gcm' });
+  assert.equal(singleCipher.some(c => c.code === 'SS_FEW_NODES'), false);
+});
+
+test('every CFnew input the generator reads is editable in settings', () => {
+  const keys = [
+    'sspass', 'ssmethod', 'tp', 's', 'scu', 'wk', 'ae', 'jk',
+    'yx', 'yxURL', 'epi', 'epd', 'egi', 'ena', 'yxby',
+    'ispMobile', 'ispUnicom', 'ispTelecom', 'locationNodeCount',
+    'fragmentLength', 'fragmentInterval', 'fragmentPackets',
+    'ports', 'dkby', 'patt', 'frag', 'fragmentPreset', 'ipRotation', 'ipv4', 'ipv6'
+  ];
+  for (const key of keys) {
+    assert.ok(SETTINGS_BY_KEY.has(key), `${key} must be editable`);
+    assert.equal(SETTINGS_BY_KEY.get(key).section === 'cfnew' || SETTINGS_BY_KEY.get(key).section === 'proxy' || SETTINGS_BY_KEY.get(key).section === 'network', true, `${key} has a panel section`);
+  }
+  // yx is a list, so the panel renders it as a textarea instead of one-line input.
+  assert.equal(SETTINGS_BY_KEY.get('yx').type, 'textarea');
 });
 
 test('private host detection blocks loopback and RFC1918 ranges', () => {
